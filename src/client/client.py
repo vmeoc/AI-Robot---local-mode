@@ -15,7 +15,7 @@ load_dotenv(find_dotenv())  # charge un éventuel fichier .env
 # Configuration
 API_ENDPOINT = "http://192.168.110.35:8000/ask"  # À modifier avec l'IP du serveur
 API_TOKEN = os.getenv("API_TOKEN")  # Token d'authentification
-WAKE_WORD = "hey mars"  # Mot de réveil
+WAKE_WORD = "Mars réveille toi"  # Mot de réveil
 VAD_AGGRESSIVENESS = 3  # Niveau d'agressivité du VAD (1-3)
 SILENCE_TIMEOUT = 0.5  # Temps de silence pour arrêter l'enregistrement (secondes)
 SAMPLE_RATE = 16000  # Taux d'échantillonnage (Hz)
@@ -76,7 +76,7 @@ class Client:
         self.recorder = AudioRecorder()
         self.porcupine = Porcupine(
             access_key=os.getenv("PORCUPINE_ACCESS_KEY"),
-            keyword_paths=[os.path.join(os.path.dirname(__file__), "hey_mars.ppn")]
+            keyword_paths=[os.path.join(os.path.dirname(__file__), "Mars-réveille-toi_fr_raspberry-pi_v3_0_0.ppn")]
         )
         self.audio = pyaudio.PyAudio()
         self.stream = self.audio.open(
