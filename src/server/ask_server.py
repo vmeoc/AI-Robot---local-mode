@@ -44,7 +44,7 @@ def llama(prompt: str) -> str:
         rsp = requests.post(
             OLLAMA_URL,
             json={
-                "model": "mars-ia-mistral-nemo",
+                "model": "mars-ia-llama3-8B-instruct-q4",
                 "messages": [{"role": "user", "content": prompt}],
                 "stream": False,
             },
@@ -127,11 +127,14 @@ async def ask(
 
     try:
         # 2) Transcription
+        stt_start = time.time()
         segments, info = stt.transcribe(
             tmp_path,
             beam_size=2,
             language="fr",
         )
+        stt_duration = time.time() - stt_start
+        print(f"[STT TIME] {stt_duration:.2f}s")
     finally:
         os.unlink(tmp_path)  # supprime le WAV temporaire
 
@@ -139,11 +142,17 @@ async def ask(
     print(f"[STT {info.language}] {text}")
 
     # 3) LLM
+    llm_start = time.time()
     answer = llama(text)
+    llm_duration = time.time() - llm_start
+    print(f"[LLM TIME] {llm_duration:.2f}s")
     print(f"[LLM] {answer}")
 
     # 4) TTS
+    tts_start = time.time()
     mp3_bytes = synthesize(answer)
+    tts_duration = time.time() - tts_start
+    print(f"[TTS TIME] {tts_duration:.2f}s")
     return {"answer": answer, "audio": mp3_bytes.hex()}
 
 # ───────────  Lancement direct  ────────────────────────────────────

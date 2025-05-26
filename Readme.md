@@ -1,139 +1,106 @@
-# 🤖 AI Robot – Voice Interaction Project
+# 🧠🤖 Voice-Controlled PiCar-X with Local LLMs
 
-## 1 · Overview
-
-This repo contains the **minimal, fully‑local voice pipeline** for my PiCar‑X robot:
-
-```
-Pi 5 (wake‑word + VAD)  ──WAV──▶  FastAPI /ask  ──MP3──▶  Pi 5 loud‑speaker
-                       (LAN < 10 ms)
-        STT  Whisper‑tiny   ⇣      LLM  “robot‑mistral” (Ollama)
-                                  ⇡
-                       TTS  Piper (fr_FR‑siwis)
-```
-
-* **All computation stays on my network** – no OpenAI cloud calls.
-* **Multilingual**: Whisper auto‑detects FR / EN / ES; the answer is voiced in Siwis‑FR for now.
-* **Security**: every request needs a `Bearer` API\_TOKEN (+ fail‑delay).
+Transform your [Sunfounder PiCar-X](https://www.sunfounder.com/products/picar-x?ref=luckyday&gad_source=1&gad_campaignid=22592763779&gbraid=0AAAAA_u_cfN7qILs3TPP89J_CodjDeyXX&gclid=Cj0KCQjwotDBBhCQARIsAG5pinOjfLEk2BrIwIBAsutfu-dz9eeVdjQR9jZwXNEfIrKJVoDinXrwccsaArTKEALw_wcB) into a smart, voice-activated robot powered by local Large Language Models (LLMs).
+No cloud. No lag. Just fast, private AI at your fingertips.
 
 ---
 
-## 2 · File map
+## 🚀 Features
 
-| Path                           | Role                                                          |
-| ------------------------------ | ------------------------------------------------------------- |
-| `ask_server.py`                | FastAPI endpoint `/ask` → STT → LLM → TTS → MP3               |
-| `client.py` *(to be finished)* | Runs on the Pi 5 – wake‑word, VAD, POST wav, play mp3         |
-| `.env`                         | Stores `API_TOKEN=` so the server never hard‑codes the secret |
-| `TTS/fr_FR‑siwis‑medium.onnx`  | Single Piper voice (≈ 60 MB)                                  |
-| `Modelfile robot‑mistral`      | Ollama personality & system prompt                            |
+* **Wake word detection** — say the magic word to wake up your robot.
+* **Voice request capture** — record your question directly from the robot.
+* **On-premise processing** — audio is sent to your local computer for analysis.
+* **LLM-powered intelligence** — local LLM (via [Ollama](https://ollama.com/)) generates a reply.
+* **Text-to-speech (TTS)** — reply is converted to audio and played back on the robot.
+
+All processing is done locally — ensuring fast responses and data privacy.
 
 ---
 
-## 3 · ask\_server.py responsibilities
+## 📂 Project Architecture
 
-1. **Auth** – `check_auth()` validates `Authorization: Bearer <TOKEN>` and adds a 2‑4 s delay on bad tokens.
-2. **STT** – writes the uploaded WAV to a temp file, runs `faster‑whisper` (tiny INT8, GPU if available).
-3. **LLM** – calls Ollama (`model: robot‑mistral`) with the user text, gets a reply string.
-4. **TTS** – pipes the reply into Piper (`fr_FR‑siwis‑medium.onnx`), converts stdout WAV → MP3 using *pydub + ffmpeg*.
-5. **Response** – returns JSON `{ answer, audio }` where `audio` is the MP3 hex string.
-
-> ⚠ Dependencies: `python-dotenv fastapi uvicorn faster-whisper[CUDA] piper-tts pydub ffmpeg` + Torch 2.5.1 cu121 and CTranslate2 GPU.
-
-### Quick start (PC Windows)
-
-```powershell
-$Env:API_TOKEN = "<your‑token>"
-pip install -r requirement.txt  # see versions pinned
-ollama serve                    # robot‑mistral must be pulled
-python ask_server.py            # launches on http://localhost:8000
-```
-
-### Test with curl.exe
-
-```powershell
-curl.exe -X POST http://localhost:8000/ask ^
- -H "Authorization: Bearer %API_TOKEN%" ^
- -F "file=@test.wav" > reply.json
-python utils\play_json.py reply.json  # writes response.mp3 & plays it
+```plaintext
+User → PiCar-X Mic → (client.py) → Local PC (ask_server.py + Ollama) → LLM → TTS → Audio → PiCar-X Speaker
 ```
 
 ---
 
-## 4 · Client responsibilities (Raspberry Pi)
+## 📂 Components
 
-* **Wake‑word** with Porcupine: triggers "Hey Mars".
-* **VAD capture** (webrtcvad) until 500 ms silence.
-* **POST** to `/ask` with token header.
-* **Play** the returned MP3 (`mpg123 -`).
-* **Loop** back to listening (disable wake‑word while audio is playing).
+### 👤 `ask_server.py` (runs on your local computer)
 
-Implementation stub is in `client.py`; next tasks:
+* Receives audio from PiCar-X
+* Transcribes speech
+* Sends prompt to LLM via Ollama
+* Converts response into speech (TTS)
+* Returns audio file to PiCar-X
 
-1. Glue Porcupine + VAD + HTTP.
-2. Add LED "listening" feedback.
+> ✅ Requires [Ollama](https://ollama.com) with a compatible LLM installed (e.g. `llama3`, `mistral`, etc.)
 
 ---
 
-## 5 · Current state
+### 🤖 `client.py` (runs on the PiCar-X / Raspberry Pi)
 
-### ✅ Working
+* Detects wake word using Porcupine
+* Records voice input
+* Sends audio to `ask_server.py`
+* Receives audio reply and plays it through speaker
 
-* ask_server.py boots, loads token from `.env`.
-* Ollama & Whisper GPU run; ffmpeg installed.
-* LLM communication works correctly with mars-ia-mistral-nemo model.
+---
 
+## 📦 Installation
 
-### ⬜ To finish
+### On Local Computer
 
-| Item                     | Notes                                                 |
-| ------------------------ | ----------------------------------------------------- |
-| **TTS Integration**      | Piper-TTS installation has dependency conflicts       |
-| **Client loop on Pi**    | record, send, play – needs final glue.                |
-| **Continuous wake-word** | disable during playback to avoid self-trigger.        |
-| **Voice variety**        | add EN/ES Piper voices + language→voice map.          |
-| **Robo-commands**        | later: Rhino or LLM function-calling to drive motors. |
+1. Install [Ollama](https://ollama.com) and pull your preferred LLM.
+2. Clone this repo and install dependencies:
 
-
-### Known Issues
-
-1. **Piper-TTS Dependency Conflict** (Résolu):
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
    ```
-   Solution: Utiliser piper-phonemize-fix à la place de piper-phonemize
-   Commandes:
-   pip uninstall piper-tts
-   pip install piper-tts==1.2.0 --no-deps
-   pip install piper-phonemize-fix==1.2.1
+3. Run the server:
+
+   ```bash
+   python ask_server.py
    ```
 
-2. **Utilisation de Piper TTS**:
-   ```python
-   from piper import PiperVoice
-   import wave
-   
-   # Charger la voix
-   voice = PiperVoice.load("chemin/vers/voix.onnx")
-   
-   # Synthétiser un échantillon audio
-   with wave.open("output.wav", "wb") as wav_file:
-       voice.synthesize("Texte à synthétiser", wav_file)
+### On Raspberry Pi (PiCar-X)
+
+1. Enable microphone and speaker support.
+2. Install Python dependencies:
+
+   ```bash
+   sudo apt install portaudio19-dev
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install pvporcupine webrtcvad pyaudio requests
    ```
+3. Run the client:
 
-
-### 🐞 Known issues
-
-* `pydub` warns if ffmpeg isn’t in PATH – solved by installing *Gyan FFmpeg*.
-* `API_TOKEN` must be in env **before** launching the server, or .env + `python‑dotenv`.
-* Upload must be a **wav** file; other formats will need an ffmpeg decode step.
+   ```bash
+   python client.py
+   ```
 
 ---
 
-## 6 · Next steps
+##
 
-1. the curl call need to work
-1.2 Finish `client.py` and test the full LAN round‑trip.
-2. Benchmark latency & tokens/s, tweak Whisper size (tiny → base) if accuracy too low.
-3. Introduce Piper EN/ES or switch to Orca if we need faster TTS.
-4. Add command intents (Rhino) or Ollama function‑calling for robot motion.
+---
 
-Happy hacking! 🚀
+## 📃 License
+
+MIT License
+
+---
+
+## 👌 Credits
+
+* Based on the [PiCar-X by Sunfounder](https://www.sunfounder.com/products/picar-x)
+* Wake-word detection via [Picovoice Porcupine](https://github.com/Picovoice/porcupine)
+* Local LLM support powered by [Ollama](https://ollama.com)
+
+---
+
+> Questions or ideas? Contributions welcome!
