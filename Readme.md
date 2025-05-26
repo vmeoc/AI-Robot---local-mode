@@ -1,4 +1,4 @@
-# 🧠🤖 Voice-Controlled PiCar-X with Local LLMs
+# 🧠🤖 Voice-Controlled PiCar-X robot with Local LLMs
 
 Transform your [Sunfounder PiCar-X](https://www.sunfounder.com/products/picar-x?ref=luckyday&gad_source=1&gad_campaignid=22592763779&gbraid=0AAAAA_u_cfN7qILs3TPP89J_CodjDeyXX&gclid=Cj0KCQjwotDBBhCQARIsAG5pinOjfLEk2BrIwIBAsutfu-dz9eeVdjQR9jZwXNEfIrKJVoDinXrwccsaArTKEALw_wcB) into a smart, voice-activated robot powered by local Large Language Models (LLMs).
 No cloud. No lag. Just fast, private AI at your fingertips.
