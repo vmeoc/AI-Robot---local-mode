@@ -1,0 +1,25 @@
+// .vscode/settings.json
+{
+  // 1. Indique explicitement ton .venv
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  // (pour les anciennes versions de l’extension Python)
+  "python.pythonPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+
+  // 2. Active automatiquement l’environnement dans chaque terminal
+  "python.terminal.activateEnvironment": true,
+  "python.terminal.activateEnvInCurrentTerminal": true,
+
+  // 3. (Optionnel) Force l’ouverture du terminal PowerShell déjà activé
+  "terminal.integrated.profiles.windows": {
+    "PowerShell (venv)": {
+      "source": "PowerShell",
+      "icon": "terminal-powershell",
+      "args": [
+        "-NoExit",
+        "-Command",
+        "& '${workspaceFolder}\\.venv\\Scripts\\Activate.ps1'"
+      ]
+    }
+  },
+  "terminal.integrated.defaultProfile.windows": "PowerShell (venv)"
+}

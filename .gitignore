@@ -1,0 +1,8 @@
+.env
+.venv
+.venv/
+test.wav
+reply.json
+ollama
+ollama.exe
+check_gpu.py
