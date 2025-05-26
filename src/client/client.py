@@ -7,7 +7,7 @@ import requests
 from pvporcupine import Porcupine
 from robot_hat import Pin
 import subprocess
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
 
 load_dotenv(find_dotenv())  # charge un éventuel fichier .env

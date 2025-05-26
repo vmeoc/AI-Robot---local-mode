@@ -8,7 +8,7 @@ import subprocess
 import requests
 import wave
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from fastapi import FastAPI, UploadFile, File, Header, HTTPException
 from faster_whisper import WhisperModel
 import pydub
