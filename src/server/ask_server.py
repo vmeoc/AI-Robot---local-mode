@@ -14,7 +14,7 @@ from faster_whisper import WhisperModel
 import pydub
 
 # ───────────────  CONFIG  ──────────────────────────────────────────
-load_dotenv()  # charge un éventuel fichier .env
+load_dotenv(find_dotenv())  # charge un éventuel fichier .env
 API_TOKEN  = os.getenv("API_TOKEN", "")
 print("[INFO] API_TOKEN chargé :", API_TOKEN[:8] if API_TOKEN else "<vide>")
 

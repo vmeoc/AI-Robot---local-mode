@@ -7,9 +7,13 @@ import requests
 from pvporcupine import Porcupine
 from robot_hat import Pin
 import subprocess
+from dotenv import load_dotenv
+
+
+load_dotenv(find_dotenv())  # charge un éventuel fichier .env
 
 # Configuration
-API_ENDPOINT = "http://localhost:8000/ask"  # À modifier avec l'IP du serveur
+API_ENDPOINT = "http://192.168.110.35:8000/ask"  # À modifier avec l'IP du serveur
 API_TOKEN = os.getenv("API_TOKEN")  # Token d'authentification
 WAKE_WORD = "hey mars"  # Mot de réveil
 VAD_AGGRESSIVENESS = 3  # Niveau d'agressivité du VAD (1-3)
