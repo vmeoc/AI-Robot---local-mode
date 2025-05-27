@@ -217,7 +217,7 @@ class AudioRecorder:
     def __init__(self):
         self.frames = []
         self.pre_buffer = deque(maxlen=10)  # 300ms de pré-buffer
-        self.min_audio_level = 500  # Niveau minimum pour valider l'enregistrement
+        self.min_audio_level = 100  # Niveau minimum pour valider l'enregistrement (abaissé)
         
     def add_to_prebuffer(self, frame):
         """Ajoute une frame au pré-buffer"""
