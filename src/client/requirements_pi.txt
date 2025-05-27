@@ -5,11 +5,9 @@
 pyaudio==0.2.14
 webrtcvad==2.0.10
 
-# Calcul numérique (version optimisée pour ARM)
-numpy==1.24.4
-
-# Traitement du signal (pour filtrage audio)
-scipy==1.10.1
+# Calcul numérique (versions compatibles)
+numpy==1.26.0
+scipy==1.11.4
 
 # Réseau
 requests==2.31.0

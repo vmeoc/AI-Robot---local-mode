@@ -67,21 +67,35 @@ pip install --upgrade pip
 pip install --upgrade -r requirements_pi.txt
 
 # Test du microphone
-echo "🎤 Test du microphone (5 secondes)..."
-echo "Parlez maintenant pour tester le niveau audio..."
-arecord -D plughw:1,0 -f S16_LE -r 16000 -c 1 -d 5 test_audio.wav
-echo "✓ Enregistrement terminé"
+echo "🎤 Test du microphone..."
 
-# Analyse du niveau audio
-if command -v sox &> /dev/null; then
-    echo "📊 Analyse du niveau audio:"
-    sox test_audio.wav -n stats 2>&1 | grep -E "Maximum amplitude|RMS"
+# Détection du bon périphérique
+DEFAULT_DEVICE=$(arecord -l | grep -E "card [0-9]+" | head -n1 | sed -E 's/card ([0-9]+):.*/\1/')
+if [ -z "$DEFAULT_DEVICE" ]; then
+    echo "⚠️  Aucun périphérique audio trouvé"
+    echo "   Vérifiez que votre microphone est bien connecté"
 else
-    echo "ℹ️  Installez sox pour l'analyse audio: sudo apt-get install sox"
+    echo "   Utilisation du périphérique: card $DEFAULT_DEVICE"
+    echo "   Parlez maintenant pour tester le niveau audio (5 secondes)..."
+    arecord -D plughw:${DEFAULT_DEVICE},0 -f S16_LE -r 16000 -c 1 -d 5 test_audio.wav 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo "✓ Enregistrement terminé"
+        
+        # Analyse du niveau audio
+        if [ -f test_audio.wav ]; then
+            if command -v sox &> /dev/null; then
+                echo "📊 Analyse du niveau audio:"
+                sox test_audio.wav -n stats 2>&1 | grep -E "Maximum amplitude|RMS"
+            else
+                echo "ℹ️  Installez sox pour l'analyse audio: sudo apt-get install sox"
+            fi
+            # Nettoyage
+            rm -f test_audio.wav
+        fi
+    else
+        echo "⚠️  Erreur lors de l'enregistrement. Essayez avec un microphone USB externe."
+    fi
 fi
-
-# Nettoyage
-rm -f test_audio.wav
 
 echo ""
 echo "✅ Mise à jour terminée!"
