@@ -21,8 +21,9 @@ load_dotenv(find_dotenv())            # charge .env s'il existe
 
 API_ENDPOINT = "http://192.168.110.35:8000/ask"   # IP du serveur
 API_TOKEN    = os.getenv("API_TOKEN")             # Bearer token
-VAD_AGGR     = 3                                  # 1 (doux) → 3 (très agressif)
-SILENCE_TMO  = 0.5                                # arrêt après 0,5 s de silence
+VAD_AGGR     = 2                                  # 2 = medium aggressiveness
+SILENCE_TMO  = 1.0                                # arrêt après 1.0 s de silence
+MIN_SPEECH_DURATION = 0.3                         # min seconds of speech to trigger
 SR           = 16000                              # sample-rate
 FRAME_MS     = 30                                 # longueur trame (ms)
 CHUNK        = int(SR * FRAME_MS / 1000)          # = 480 échantillons
@@ -139,6 +140,9 @@ class Client:
     def listen_forever(self):
         print("🎤 En attente de parole…")
         threshold = 2000  # ajuste en fonction de ton micro
+        min_speech_frames = int(MIN_SPEECH_DURATION * 1000 / FRAME_MS)
+        speech_frames = 0
+        
         while True:
             pcm = self.wk_stream.read(CHUNK, exception_on_overflow=False)
 
@@ -148,11 +152,16 @@ class Client:
             print(f"[LEVEL {level:5d}] {bar}", end="\r")
 
             if self.recorder.vad.is_speech(pcm, SR):
-                print("\n🔊 Parole détectée !")
-                led.on()
-                wav = self.recorder.record_until_silence()
-                led.off()
-                self._send_and_play(wav)
+                speech_frames += 1
+                if speech_frames >= min_speech_frames:
+                    print("\n🔊 Parole détectée !")
+                    led.on()
+                    wav = self.recorder.record_until_silence()
+                    led.off()
+                    self._send_and_play(wav)
+                    speech_frames = 0
+            else:
+                speech_frames = 0
 
       # ---------------- API + playback ----------------
     def _send_and_play(self, wav_bytes: bytes):
@@ -164,8 +173,12 @@ class Client:
                 timeout=20,
             )
             resp.raise_for_status()
-            mp3_data = resp.json()["audio"]        # ← le serveur renvoie les octets
-            self.play_mp3(mp3_data)
+            response_data = resp.json()
+            if "audio" in response_data:
+                mp3_data = bytes.fromhex(response_data["audio"])
+                self.play_mp3(mp3_data)
+            if "answer" in response_data:
+                print(f"🤖: {response_data['answer']}")
         except Exception as exc:
             print("❌ Erreur serveur :", exc)
 
