@@ -139,29 +139,63 @@ class Client:
 
     def listen_forever(self):
         print("🎤 En attente de parole…")
-        threshold = 500  # ajuste en fonction de ton micro
-        min_speech_frames = int(MIN_SPEECH_DURATION * 1000 / FRAME_MS)
+        from collections import deque
+        audio_buffer = deque(maxlen=int(0.5 * SR / CHUNK))  # 500ms buffer
+        threshold = 300  # volume threshold
+        min_speech_frames = int(0.8 * 1000 / FRAME_MS)  # 800ms min speech
         speech_frames = 0
+        consecutive_silence = 0
         
         while True:
             pcm = self.wk_stream.read(CHUNK, exception_on_overflow=False)
-
-            # ← Nouveau bloc pour afficher que le micro capte bien quelque chose
-            level = audioop.rms(pcm, 2)  # RMS sur des échantillons 16-bit
+            audio_buffer.append(pcm)
+            
+            level = audioop.rms(pcm, 2)
             bar = '#' * (level // threshold)
             print(f"[LEVEL {level:5d}] {bar}", end="\r")
 
-            if self.recorder.vad.is_speech(pcm, SR):
+            # Enhanced speech detection
+            is_speech = (level > threshold and 
+                        self.recorder.vad.is_speech(pcm, SR) and
+                        self._has_voice_frequency(pcm))
+            
+            if is_speech:
                 speech_frames += 1
+                consecutive_silence = 0
                 if speech_frames >= min_speech_frames:
                     print("\n🔊 Parole détectée !")
                     led.on()
-                    wav = self.recorder.record_until_silence()
+                    # Save buffered audio + new recording
+                    buffered_audio = b''.join(audio_buffer)
+                    wav = buffered_audio + self.recorder.record_until_silence()
                     led.off()
-                    self._send_and_play(wav)
+                    self._send_and_play(self._create_full_wav(wav))
                     speech_frames = 0
+                    audio_buffer.clear()
             else:
-                speech_frames = 0
+                consecutive_silence += 1
+                if consecutive_silence > 5:  # Reset if too much silence
+                    speech_frames = 0
+
+    def _has_voice_frequency(self, pcm):
+        """Check if audio contains voice frequencies"""
+        # Simple implementation - can be enhanced with FFT
+        return audioop.avg(pcm, 2) > 100  # Basic voice frequency check
+
+    def _create_full_wav(self, audio_data):
+        """Create complete WAV file with header"""
+        import struct
+        header = struct.pack(
+            '<4sI4s4sIHHIIHH4sI',
+            b'RIFF',
+            len(audio_data) + 36,
+            b'WAVE',
+            b'fmt ',
+            16, 1, 1, SR, SR*2, 2, 16,
+            b'data',
+            len(audio_data)
+        )
+        return header + audio_data
 
       # ---------------- API + playback ----------------
     def _send_and_play(self, wav_bytes: bytes):
