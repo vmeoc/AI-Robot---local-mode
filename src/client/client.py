@@ -139,7 +139,7 @@ class Client:
 
     def listen_forever(self):
         print("🎤 En attente de parole…")
-        threshold = 2000  # ajuste en fonction de ton micro
+        threshold = 500  # ajuste en fonction de ton micro
         min_speech_frames = int(MIN_SPEECH_DURATION * 1000 / FRAME_MS)
         speech_frames = 0
         

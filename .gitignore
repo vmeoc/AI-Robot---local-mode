@@ -6,3 +6,4 @@ reply.json
 ollama
 ollama.exe
 check_gpu.py
+src/server/received_audio
