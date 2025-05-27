@@ -88,20 +88,31 @@ class Client:
 
     # ---------------- Wake-word ----------------
     def _setup_wake_word(self):
-        access_key = os.getenv("PORCUPINE_ACCESS_KEY")
+        access_key = os.getenv("PORCOVINE_ACCESS_KEY")
         if not access_key:
-            raise ValueError("PORCUPINE_ACCESS_KEY manquant dans .env")
+            raise ValueError("PORCOVINE_ACCESS_KEY manquant dans .env")
 
-        keyword_path = os.path.join(os.path.dirname(__file__), "Mars-réveille-toi_fr_raspberry-pi_v3_0_0.ppn")
+        keyword_path = os.path.join(
+            os.path.dirname(__file__),
+            "Mars-réveille-toi_fr_raspberry-pi_v3_0_0.ppn"
+        )
+        model_path = os.path.join(
+            os.path.dirname(__file__),
+            "porcupine_params_fr.pv"
+        )
+
         if not os.path.exists(keyword_path):
             raise FileNotFoundError(f"Wake-word absent : {keyword_path}")
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Modèle absent : {model_path}")
 
-        # API ≥ 3 : utilisation de la factory `create`
         self.porcupine = pvporcupine.create(
             access_key=access_key,
             keyword_paths=[keyword_path],
+            model_path=model_path,
             sensitivities=[0.5],
         )
+
 
     # ---------------- Micro ----------------
     def _find_input_device(self):
