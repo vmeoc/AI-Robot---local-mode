@@ -92,7 +92,7 @@ class Client:
         if not access_key:
             raise ValueError("PORCUPINE_ACCESS_KEY manquant dans .env")
 
-        keyword_path = os.path.join(os.path.dirname(__file__), "hey_mars.ppn")
+        keyword_path = os.path.join(os.path.dirname(__file__), "Mars-réveille-toi_fr_raspberry-pi_v3_0_0.ppn")
         if not os.path.exists(keyword_path):
             raise FileNotFoundError(f"Wake-word absent : {keyword_path}")
 
