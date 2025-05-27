@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 client.py – PiCar-X : écoute continue → enregistrement → envoi serveur → lecture réponse
-Version optimisée pour Raspberry Pi 5 avec détection de parole améliorée
+Version optimisée pour Raspberry Pi 5 avec détection de parole améliorée et réduction de bruit
 """
 
 import os
@@ -12,6 +12,7 @@ import struct
 import numpy as np
 from collections import deque
 from enum import Enum
+from scipy import signal
 
 import webrtcvad
 import pyaudio
@@ -40,6 +41,53 @@ class SpeechState(Enum):
     ENDING = "ENDING"
 
 
+# ─────────────── UTILITAIRES AUDIO ─────────────────────────────────
+class AudioProcessor:
+    """Traitement audio : filtrage, normalisation, etc."""
+    
+    @staticmethod
+    def high_pass_filter(data, cutoff=80, fs=SR):
+        """Filtre passe-haut pour éliminer les basses fréquences"""
+        nyquist = fs / 2
+        normal_cutoff = cutoff / nyquist
+        
+        # Convertir bytes en numpy array
+        audio_array = np.frombuffer(data, dtype=np.int16)
+        
+        # Créer et appliquer le filtre
+        b, a = signal.butter(4, normal_cutoff, btype='high', analog=False)
+        filtered = signal.filtfilt(b, a, audio_array)
+        
+        # Reconvertir en bytes
+        return filtered.astype(np.int16).tobytes()
+    
+    @staticmethod
+    def normalize_audio(data, target_level=3000):
+        """Normalise le niveau audio"""
+        # Calculer le niveau RMS actuel
+        current_level = audioop.rms(data, 2)
+        
+        if current_level > 0:
+            # Calculer le facteur de normalisation
+            factor = target_level / current_level
+            # Limiter le facteur pour éviter la saturation
+            factor = min(factor, 10.0)
+            factor = max(factor, 0.1)
+            
+            # Appliquer la normalisation
+            return audioop.mul(data, 2, factor)
+        
+        return data
+    
+    @staticmethod
+    def compute_snr(signal_data, noise_floor):
+        """Calcule le rapport signal/bruit"""
+        signal_level = audioop.rms(signal_data, 2)
+        if noise_floor > 0:
+            return 20 * np.log10(signal_level / noise_floor)
+        return 0
+
+
 # ─────────────── DÉTECTEUR OPTIMISÉ ────────────────────────────────
 class OptimizedSpeechDetector:
     def __init__(self):
@@ -65,51 +113,76 @@ class OptimizedSpeechDetector:
         self.max_silence_frames = 50  # 1.5s max de silence
         self.pre_speech_frames = 5   # 150ms de pré-buffer
         
-    def calibrate(self, stream, duration=2.0):
-        """Calibration du bruit ambiant"""
+        # Statistiques
+        self.total_detections = 0
+        self.false_positives = 0
+        
+    def calibrate(self, stream, duration=3.0):
+        """Calibration améliorée du bruit ambiant"""
         print("🎤 Calibration du bruit ambiant... Ne parlez pas.")
         levels = []
         
         for _ in range(int(duration * 1000 / FRAME_MS)):
             pcm = stream.read(CHUNK, exception_on_overflow=False)
-            level = audioop.rms(pcm, 2)
+            # Appliquer le filtre passe-haut
+            filtered = AudioProcessor.high_pass_filter(pcm)
+            level = audioop.rms(filtered, 2)
             levels.append(level)
             
-        # Statistiques du bruit
-        self.noise_floor = np.mean(levels)
-        self.noise_std = np.std(levels)
-        noise_max = np.percentile(levels, 95)
+            # Affichage de progression
+            progress = len(levels) / (duration * 1000 / FRAME_MS)
+            bar = '█' * int(progress * 20)
+            print(f"\r  [{bar:<20}] {progress*100:.0f}%", end='')
+            
+        print()  # Nouvelle ligne
         
-        # Seuils adaptatifs
-        self.threshold_low = max(noise_max * 1.5, self.noise_floor + 3 * self.noise_std)
-        self.threshold_high = self.threshold_low * 1.5
+        # Statistiques du bruit avec percentiles
+        levels_array = np.array(levels)
+        self.noise_floor = np.median(levels_array)
+        self.noise_std = np.std(levels_array)
+        noise_p75 = np.percentile(levels_array, 75)
+        noise_p95 = np.percentile(levels_array, 95)
+        
+        # Seuils adaptatifs basés sur les percentiles
+        self.threshold_low = max(noise_p95 * 1.5, self.noise_floor + 4 * self.noise_std)
+        self.threshold_high = self.threshold_low * 1.8
         
         print(f"✓ Calibration terminée:")
-        print(f"  - Bruit moyen: {self.noise_floor:.0f}")
+        print(f"  - Bruit médian: {self.noise_floor:.0f}")
+        print(f"  - Bruit P95: {noise_p95:.0f}")
         print(f"  - Seuil bas: {self.threshold_low:.0f}")
         print(f"  - Seuil haut: {self.threshold_high:.0f}")
+        print(f"  - Écart-type: {self.noise_std:.0f}")
         
     def process_frame(self, pcm):
         """Traite une frame audio et retourne l'action à effectuer"""
-        level = audioop.rms(pcm, 2)
+        # Appliquer le filtre passe-haut
+        filtered = AudioProcessor.high_pass_filter(pcm)
+        
+        level = audioop.rms(filtered, 2)
         self.level_history.append(level)
         
         # Calcul des métriques
         avg_level = np.mean(self.level_history)
         level_variation = np.std(self.level_history)
-        is_vad_speech = self.vad.is_speech(pcm, SR)
+        is_vad_speech = self.vad.is_speech(filtered, SR)
+        
+        # Calcul du SNR
+        snr = AudioProcessor.compute_snr(filtered, self.noise_floor)
         
         # Détection multi-critères
         is_loud = level > self.threshold_low
         is_very_loud = level > self.threshold_high
         has_variation = level_variation > (self.noise_std * 2)
+        good_snr = snr > 10  # SNR > 10 dB
         
-        # Score de confiance
+        # Score de confiance amélioré
         confidence = 0
         if is_loud: confidence += 1
         if is_very_loud: confidence += 1
         if is_vad_speech: confidence += 2
         if has_variation: confidence += 1
+        if good_snr: confidence += 1
         
         # Machine d'état
         action = None
@@ -125,10 +198,11 @@ class OptimizedSpeechDetector:
                 
         elif self.state == SpeechState.MAYBE_SPEECH:
             self.state_duration += 1
-            if confidence >= 2:
+            if confidence >= 3:
                 if self.state_duration >= 3:  # 90ms de confirmation
                     self.state = SpeechState.SPEECH
                     action = "START_RECORDING"
+                    self.total_detections += 1
             else:
                 self.state = SpeechState.SILENCE
                 self.speech_confidence = 0
@@ -150,12 +224,14 @@ class OptimizedSpeechDetector:
                 self.speech_confidence = 0
                 action = "STOP_RECORDING"
                 
-        return action, level, confidence
+        return action, level, confidence, snr
         
     def should_recalibrate(self):
         """Détermine si une recalibration est nécessaire"""
-        # Recalibrer toutes les 5 minutes ou si trop de faux positifs
-        return False  # Pour l'instant, calibration manuelle seulement
+        # Recalibrer si trop de faux positifs
+        if self.total_detections > 10 and self.false_positives / self.total_detections > 0.3:
+            return True
+        return False
 
 
 # ─────────────── ENREGISTREUR AUDIO ────────────────────────────────
@@ -163,6 +239,7 @@ class AudioRecorder:
     def __init__(self):
         self.frames = []
         self.pre_buffer = deque(maxlen=10)  # 300ms de pré-buffer
+        self.min_audio_level = 500  # Niveau minimum pour valider l'enregistrement
         
     def add_to_prebuffer(self, frame):
         """Ajoute une frame au pré-buffer"""
@@ -176,12 +253,27 @@ class AudioRecorder:
         """Ajoute une frame à l'enregistrement"""
         self.frames.append(frame)
         
+    def is_valid_recording(self):
+        """Vérifie si l'enregistrement contient vraiment de la parole"""
+        if not self.frames:
+            return False
+            
+        # Calculer le niveau moyen
+        total_level = 0
+        for frame in self.frames:
+            total_level += audioop.rms(frame, 2)
+        avg_level = total_level / len(self.frames)
+        
+        return avg_level > self.min_audio_level
+        
     def get_wav(self):
-        """Retourne le WAV complet avec header"""
+        """Retourne le WAV complet avec header, normalisé"""
         if not self.frames:
             return None
             
+        # Concaténer et normaliser l'audio
         data = b"".join(self.frames)
+        data = AudioProcessor.normalize_audio(data)
         
         # Header WAV
         header = struct.pack(
@@ -203,6 +295,53 @@ class AudioRecorder:
         self.pre_buffer.clear()
 
 
+# ─────────────── SÉLECTEUR DE PÉRIPHÉRIQUE ────────────────────────
+class DeviceSelector:
+    """Sélectionne automatiquement le meilleur périphérique audio"""
+    
+    @staticmethod
+    def find_best_microphone(pa):
+        """Trouve le meilleur microphone disponible"""
+        print("🔍 Recherche du meilleur microphone...")
+        
+        best_device = None
+        best_score = -1
+        
+        for i in range(pa.get_device_count()):
+            info = pa.get_device_info_by_index(i)
+            
+            # Vérifier si c'est un périphérique d'entrée
+            if info['maxInputChannels'] > 0:
+                score = 0
+                name = info['name'].lower()
+                
+                # Scoring basé sur le nom
+                if 'usb' in name:
+                    score += 3
+                if 'microphone' in name or 'mic' in name:
+                    score += 2
+                if 'webcam' in name or 'camera' in name:
+                    score -= 1  # Éviter les micros de webcam
+                if 'default' in name:
+                    score += 1
+                    
+                # Préférer les périphériques avec plus de canaux
+                score += info['maxInputChannels']
+                
+                print(f"  [{i}] {info['name']} (score: {score})")
+                
+                if score > best_score:
+                    best_score = score
+                    best_device = i
+                    
+        if best_device is not None:
+            selected = pa.get_device_info_by_index(best_device)
+            print(f"✓ Microphone sélectionné: [{best_device}] {selected['name']}")
+            return best_device
+        
+        return None
+
+
 # ─────────────── CLIENT PRINCIPAL ─────────────────────────────────
 class Client:
     def __init__(self):
@@ -219,29 +358,45 @@ class Client:
         self.detector = OptimizedSpeechDetector()
         self.recorder = AudioRecorder()
         
+        # Statistiques
+        self.stats = {
+            'recordings_sent': 0,
+            'recordings_valid': 0,
+            'total_duration': 0,
+            'last_snr': 0
+        }
+        
         # Calibration initiale
         self.detector.calibrate(self.stream)
         
     def _setup_audio_input(self):
-        """Configure le flux audio"""
+        """Configure le flux audio avec sélection automatique du micro"""
         try:
+            # Trouver le meilleur microphone
+            device_index = DeviceSelector.find_best_microphone(self.pa)
+            
             self.stream = self.pa.open(
                 rate=SR,
                 channels=1,
                 format=pyaudio.paInt16,
                 input=True,
                 frames_per_buffer=CHUNK,
+                input_device_index=device_index,
             )
+            print("✓ Flux audio configuré")
         except Exception as e:
-            print(f"Erreur audio: {e}")
+            print(f"❌ Erreur audio: {e}")
             raise
             
     def listen_forever(self):
         """Boucle principale d'écoute"""
         print("\n🎤 En attente de parole... (Ctrl+C pour arrêter)")
+        print("   [·] Silence  [?] Peut-être  [●] Parole  [○] Fin")
+        print("   [R] pour recalibrer manuellement\n")
         
         recording = False
         frames_since_start = 0
+        last_calibration = time.time()
         
         while True:
             try:
@@ -253,17 +408,24 @@ class Client:
                     self.recorder.add_to_prebuffer(pcm)
                 
                 # Analyse
-                action, level, confidence = self.detector.process_frame(pcm)
+                action, level, confidence, snr = self.detector.process_frame(pcm)
+                self.stats['last_snr'] = snr
                 
-                # Affichage du niveau (optionnel)
+                # Affichage du niveau
                 bar = '█' * int(level / 100)
-                state_char = {'SILENCE': '·', 'MAYBE_SPEECH': '?', 
-                             'SPEECH': '●', 'ENDING': '○'}[self.detector.state.value]
-                print(f"[{state_char}] {level:5.0f} {bar}", end='\r')
+                state_char = {
+                    'SILENCE': '·', 
+                    'MAYBE_SPEECH': '?', 
+                    'SPEECH': '●', 
+                    'ENDING': '○'
+                }[self.detector.state.value]
+                
+                snr_indicator = f"SNR:{snr:4.1f}dB" if snr > 0 else "SNR: ---"
+                print(f"[{state_char}] {level:5.0f} {bar:<30} {snr_indicator} C:{confidence}", end='\r')
                 
                 # Actions
                 if action == "START_RECORDING":
-                    print("\n🔊 Parole détectée ! Enregistrement...")
+                    print(f"\n🔊 Parole détectée ! Enregistrement... (SNR: {snr:.1f}dB)")
                     led.on()
                     recording = True
                     frames_since_start = 0
@@ -276,30 +438,49 @@ class Client:
                     if action == "STOP_RECORDING":
                         led.off()
                         recording = False
+                        duration_ms = frames_since_start * FRAME_MS
                         
-                        # Vérifier la durée minimale
+                        # Vérifier la durée et la validité
                         if frames_since_start >= self.detector.min_speech_frames:
-                            print(f"\n✓ Enregistrement terminé ({frames_since_start * FRAME_MS}ms)")
-                            wav_data = self.recorder.get_wav()
-                            if wav_data:
-                                self._send_and_play(wav_data)
+                            if self.recorder.is_valid_recording():
+                                print(f"\n✓ Enregistrement terminé ({duration_ms}ms)")
+                                wav_data = self.recorder.get_wav()
+                                if wav_data:
+                                    self._send_and_play(wav_data)
+                                    self.stats['recordings_valid'] += 1
+                            else:
+                                print("\n✗ Niveau audio trop faible, ignoré")
+                                self.detector.false_positives += 1
                         else:
                             print("\n✗ Trop court, ignoré")
+                            self.detector.false_positives += 1
                             
                         self.recorder.clear()
+                        
+                # Recalibration automatique toutes les 5 minutes
+                if time.time() - last_calibration > 300:
+                    if not recording and self.detector.should_recalibrate():
+                        print("\n\n📊 Recalibration automatique...")
+                        self.detector.calibrate(self.stream)
+                        last_calibration = time.time()
                         
             except KeyboardInterrupt:
                 break
             except Exception as e:
-                print(f"\nErreur: {e}")
+                print(f"\n❌ Erreur: {e}")
                 recording = False
                 self.recorder.clear()
                 led.off()
+                
+        # Afficher les statistiques
+        self._print_stats()
                 
     def _send_and_play(self, wav_bytes: bytes):
         """Envoie l'audio au serveur et joue la réponse"""
         try:
             print("📡 Envoi au serveur...")
+            self.stats['recordings_sent'] += 1
+            
             resp = requests.post(
                 API_ENDPOINT,
                 headers={"Authorization": f"Bearer {API_TOKEN}"},
@@ -336,8 +517,18 @@ class Client:
             
     def recalibrate(self):
         """Recalibration manuelle du bruit"""
-        print("\n📊 Recalibration...")
+        print("\n📊 Recalibration manuelle...")
         self.detector.calibrate(self.stream)
+        
+    def _print_stats(self):
+        """Affiche les statistiques de la session"""
+        print("\n\n📊 Statistiques de la session:")
+        print(f"  - Enregistrements envoyés: {self.stats['recordings_sent']}")
+        print(f"  - Enregistrements valides: {self.stats['recordings_valid']}")
+        if self.detector.total_detections > 0:
+            accuracy = (1 - self.detector.false_positives / self.detector.total_detections) * 100
+            print(f"  - Précision de détection: {accuracy:.1f}%")
+        print(f"  - Dernier SNR: {self.stats['last_snr']:.1f} dB")
         
     def cleanup(self):
         """Nettoyage des ressources"""
@@ -350,9 +541,17 @@ class Client:
 
 # ─────────────── MAIN ─────────────────────────────────────────────
 if __name__ == "__main__":
-    print("🤖 PiCar-X Voice Assistant - Version optimisée")
-    print("=" * 50)
+    print("🤖 PiCar-X Voice Assistant - Version optimisée avec réduction de bruit")
+    print("=" * 60)
     
+    # Vérifier les dépendances
+    try:
+        import scipy
+    except ImportError:
+        print("⚠️  scipy n'est pas installé. Installation recommandée:")
+        print("   pip install scipy")
+        print("   Continuons sans le filtre passe-haut...")
+        
     client = Client()
     
     try:

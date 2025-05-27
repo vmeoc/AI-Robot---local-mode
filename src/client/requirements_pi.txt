@@ -8,6 +8,9 @@ webrtcvad==2.0.10
 # Calcul numérique (version optimisée pour ARM)
 numpy==1.24.4
 
+# Traitement du signal (pour filtrage audio)
+scipy==1.10.1
+
 # Réseau
 requests==2.31.0
 
@@ -19,3 +22,7 @@ python-dotenv==1.0.0
 
 # Wake word detection (optionnel, si vous voulez réactiver)
 # pvporcupine==3.0.0
+
+# Note: Pour installer scipy sur Raspberry Pi, vous pourriez avoir besoin de:
+# sudo apt-get install libatlas-base-dev gfortran
+# avant de faire pip install scipy

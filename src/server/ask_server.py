@@ -35,8 +35,17 @@ def _delay_fail():
     time.sleep(random.uniform(2, 4))
     raise HTTPException(status_code=401, detail="unauthorized")
 
-# ❷  STT multilingue (Whisper tiny-int8, GPU si dispo)
-stt = WhisperModel("tiny", compute_type="int8")
+# ❷  STT multilingue (Whisper base, GPU si dispo)
+# Utilisation du modèle "base" pour une meilleure précision
+# compute_type="float16" pour plus de précision si GPU disponible, sinon "int8"
+try:
+    # Essayer d'utiliser float16 si GPU disponible
+    stt = WhisperModel("base", compute_type="float16")
+    print("[INFO] Whisper base chargé avec compute_type=float16 (GPU)")
+except Exception:
+    # Fallback sur int8 si pas de GPU
+    stt = WhisperModel("base", compute_type="int8")
+    print("[INFO] Whisper base chargé avec compute_type=int8 (CPU)")
 
 # ❸  Appel Ollama
 def llama(prompt: str) -> str:
@@ -134,19 +143,50 @@ async def ask(
         tmp_path = tmp.name
 
     try:
-        # 2) Transcription
+        # 2) Transcription avec paramètres optimisés
         stt_start = time.time()
         segments, info = stt.transcribe(
             tmp_path,
-            beam_size=2,
-            language="fr",
+            beam_size=5,  # Augmenté pour plus de précision
+            language="fr",  # Forcer le français
+            vad_filter=True,  # Activer le VAD interne
+            vad_parameters=dict(
+                threshold=0.5,  # Seuil de détection de parole
+                min_speech_duration_ms=250,  # Durée minimale de parole
+                max_speech_duration_s=float('inf'),  # Pas de limite max
+                min_silence_duration_ms=1000,  # Silence minimum entre segments
+                window_size_samples=1024,  # Taille de fenêtre pour l'analyse
+                speech_pad_ms=400  # Padding autour de la parole détectée
+            ),
+            word_timestamps=False,  # Pas besoin des timestamps par mot
+            condition_on_previous_text=True,  # Meilleure cohérence
+            compression_ratio_threshold=2.4,  # Seuil de compression
+            log_prob_threshold=-1.0,  # Seuil de probabilité log
+            no_speech_threshold=0.6,  # Seuil de non-parole
+            temperature=0.0,  # Pas de sampling aléatoire
+            initial_prompt="Ceci est une conversation en français.",  # Aide le modèle
         )
         stt_duration = time.time() - stt_start
+        
+        # Afficher plus d'informations sur la transcription
         print(f"[STT TIME] {stt_duration:.2f}s")
+        print(f"[STT INFO] Langue détectée: {info.language}, Probabilité: {info.language_probability:.2f}")
     finally:
         os.unlink(tmp_path)  # supprime le WAV temporaire
 
-    text = "".join(s.text for s in segments).strip()
+    # Assembler le texte avec gestion des segments vides
+    text_segments = []
+    for segment in segments:
+        if segment.text.strip():  # Ignorer les segments vides
+            text_segments.append(segment.text.strip())
+    
+    text = " ".join(text_segments)
+    
+    # Vérifier si on a bien capturé du texte
+    if not text:
+        print("[STT] Aucune parole détectée dans l'audio")
+        return {"answer": "Je n'ai pas compris. Pouvez-vous répéter ?", "audio": ""}
+    
     print(f"[STT {info.language}] {text}")
 
     # 3) LLM
@@ -163,8 +203,29 @@ async def ask(
     print(f"[TTS TIME] {tts_duration:.2f}s")
     return {"answer": answer, "audio": mp3_bytes.hex()}
 
+# ───────────  Endpoint de test  ────────────────────────────────────
+@app.get("/health")
+async def health_check():
+    """Endpoint pour vérifier que le serveur fonctionne"""
+    return {
+        "status": "ok",
+        "whisper_model": "base",
+        "llm_model": "mars-ia-llama3-8B-instruct-q4",
+        "tts_voice": "fr_FR-siwis-medium"
+    }
+
 # ───────────  Lancement direct  ────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
+    
+    print("=" * 60)
+    print("🚀 Démarrage du serveur AI Robot")
+    print("=" * 60)
+    print(f"📍 Endpoint: http://0.0.0.0:8000/ask")
+    print(f"🔐 Token requis: {'Oui' if API_TOKEN else 'Non'}")
+    print(f"🎙️  Modèle STT: Whisper base")
+    print(f"🤖 Modèle LLM: mars-ia-llama3-8B-instruct-q4")
+    print(f"🔊 Voix TTS: fr_FR-siwis-medium")
+    print("=" * 60)
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
