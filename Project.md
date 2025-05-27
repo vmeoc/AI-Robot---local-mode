@@ -125,12 +125,13 @@ Implementation stub is in `client.py`; next tasks:
 * `pydub` warns if ffmpeg isn’t in PATH – solved by installing *Gyan FFmpeg*.
 * `API_TOKEN` must be in env **before** launching the server, or .env + `python‑dotenv`.
 * Upload must be a **wav** file; other formats will need an ffmpeg decode step.
+* Wake word don't work. It's not detected by client.py. Possible reasons (sample issue or poor mic issue)
 
 ---
 
 ## 6 · Next steps
 
-1. Finish `client.py` and test the full LAN round‑trip.
+1. Finish `client.py` and test the full LAN round‑trip. Remove the wake word code.
 2. Benchmark latency & tokens/s, tweak Whisper size (tiny → base) if accuracy too low.
 3. Introduce Piper EN/ES or switch to Orca if we need faster TTS.
 4. Add command intents (Rhino) or Ollama function‑calling for robot motion.

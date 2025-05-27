@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-client.py – PiCar-X : écoute mot-clé → enregistrement → envoi serveur → lecture réponse
+client.py – PiCar-X : écoute continue → enregistrement → envoi serveur → lecture réponse
 Compatible Raspberry Pi 5 + Robot HAT v2.0
 """
 
 import os
 import time
 import tempfile
+import audioop
+import math
 
 import webrtcvad
 import pyaudio
 import requests
-import pvporcupine            # plus besoin de LIBRARY_PATH / MODEL_PATH
-from pvporcupine import Porcupine
 from robot_hat import Pin, Music
 from dotenv import load_dotenv, find_dotenv
 
@@ -21,7 +21,6 @@ load_dotenv(find_dotenv())            # charge .env s'il existe
 
 API_ENDPOINT = "http://192.168.110.35:8000/ask"   # IP du serveur
 API_TOKEN    = os.getenv("API_TOKEN")             # Bearer token
-WAKE_WORD    = "Mars réveille toi"                # label descriptif
 VAD_AGGR     = 3                                  # 1 (doux) → 3 (très agressif)
 SILENCE_TMO  = 0.5                                # arrêt après 0,5 s de silence
 SR           = 16000                              # sample-rate
@@ -83,81 +82,51 @@ class Client:
         self.music.music_set_volume(70)            # 0-100
 
         self.recorder = AudioRecorder()
-        self._setup_wake_word()
         self._setup_audio_input()
-
-    # ---------------- Wake-word ----------------
-    def _setup_wake_word(self):
-        access_key = os.getenv("PORCUPINE_ACCESS_KEY")
-        if not access_key:
-            raise ValueError("PORCUPINE_ACCESS_KEY manquant dans .env")
-
-        keyword_path = os.path.join(
-            os.path.dirname(__file__),
-            "Mars-réveille-toi_fr_raspberry-pi_v3_0_0.ppn"
-        )
-        model_path = os.path.join(
-            os.path.dirname(__file__),
-            "porcupine_params_fr.pv"
-        )
-
-        if not os.path.exists(keyword_path):
-            raise FileNotFoundError(f"Wake-word absent : {keyword_path}")
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Modèle absent : {model_path}")
-
-        self.porcupine = pvporcupine.create(
-            access_key=access_key,
-            keyword_paths=[keyword_path],
-            model_path=model_path,
-            sensitivities=[0.5],
-        )
 
 
     # ---------------- Micro ----------------
     def _find_input_device(self):
-        pa = pyaudio.PyAudio()
-        for i in range(pa.get_device_count()):
-            name = pa.get_device_info_by_index(i)["name"].lower()
-            if "mic" in name or "i2s" in name:
-                return i
-        return None                               # laisser PyAudio choisir
+        return 0                               # fonction annulée 
     def _setup_audio_input(self):
         self.pa = pyaudio.PyAudio()
-        frames_per_buf = self.porcupine.frame_length // 2
         try:
             self.wk_stream = self.pa.open(
-                rate=self.porcupine.sample_rate,
+                rate=SR,
                 channels=1,
                 format=pyaudio.paInt16,
                 input=True,
-                frames_per_buffer=frames_per_buf,
+                frames_per_buffer=CHUNK,
                 input_device_index=self._find_input_device(),
             )
         except OSError:
             self.wk_stream = self.pa.open(
-                rate=self.porcupine.sample_rate,
+                rate=SR,
                 channels=1,
                 format=pyaudio.paInt16,
                 input=True,
-                frames_per_buffer=frames_per_buf,
+                frames_per_buffer=CHUNK,
             )
 
     def listen_forever(self):
-        print("💤 En attente du mot-clé…")
-        audio_frames = self.porcupine.frame_length // 2
+        print("🎤 En attente de parole…")
+        threshold = 2000  # ajuste en fonction de ton micro
         while True:
-            pcm = self.wk_stream.read(audio_frames,
-                                      exception_on_overflow=False)
-            # pcm est désormais exactement 512 octets
-            if self.porcupine.process(pcm) >= 0:
-                print("🔊 Wake-word détecté !")
+            pcm = self.wk_stream.read(CHUNK, exception_on_overflow=False)
+
+            # ← Nouveau bloc pour afficher que le micro capte bien quelque chose
+            level = audioop.rms(pcm, 2)  # RMS sur des échantillons 16-bit
+            bar = '#' * (level // threshold)
+            print(f"[LEVEL {level:5d}] {bar}", end="\r")
+
+            if self.recorder.vad.is_speech(pcm, SR):
+                print("\n🔊 Parole détectée !")
                 led.on()
                 wav = self.recorder.record_until_silence()
                 led.off()
                 self._send_and_play(wav)
 
-    # ---------------- API + playback ----------------
+      # ---------------- API + playback ----------------
     def _send_and_play(self, wav_bytes: bytes):
         try:
             resp = requests.post(
@@ -184,7 +153,6 @@ class Client:
     def cleanup(self):
         self.wk_stream.close()
         self.pa.terminate()
-        self.porcupine.delete()
 
 
 # ─────────────── MAIN ─────────────────────────────────────────────
