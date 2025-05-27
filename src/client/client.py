@@ -122,34 +122,34 @@ class Client:
             if "mic" in name or "i2s" in name:
                 return i
         return None                               # laisser PyAudio choisir
-
-    def _setup_audio_input(self):
+def _setup_audio_input(self):
         self.pa = pyaudio.PyAudio()
+        frames_per_buf = self.porcupine.frame_length // 2
         try:
             self.wk_stream = self.pa.open(
                 rate=self.porcupine.sample_rate,
                 channels=1,
                 format=pyaudio.paInt16,
                 input=True,
-                frames_per_buffer=self.porcupine.frame_length,
+                frames_per_buffer=frames_per_buf,
                 input_device_index=self._find_input_device(),
             )
         except OSError:
-            # dernier recours : périphérique par défaut
             self.wk_stream = self.pa.open(
                 rate=self.porcupine.sample_rate,
                 channels=1,
                 format=pyaudio.paInt16,
                 input=True,
-                frames_per_buffer=self.porcupine.frame_length,
+                frames_per_buffer=frames_per_buf,
             )
 
-    # ---------------- Boucle principale ----------------
     def listen_forever(self):
         print("💤 En attente du mot-clé…")
+        audio_frames = self.porcupine.frame_length // 2
         while True:
-            pcm = self.wk_stream.read(self.porcupine.frame_length,
+            pcm = self.wk_stream.read(audio_frames,
                                       exception_on_overflow=False)
+            # pcm est désormais exactement 512 octets
             if self.porcupine.process(pcm) >= 0:
                 print("🔊 Wake-word détecté !")
                 led.on()
