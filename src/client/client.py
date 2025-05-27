@@ -21,7 +21,7 @@ load_dotenv(find_dotenv())            # charge .env s'il existe
 
 API_ENDPOINT = "http://192.168.110.35:8000/ask"   # IP du serveur
 API_TOKEN    = os.getenv("API_TOKEN")             # Bearer token
-VAD_AGGR     = 1                                  # 1 = least aggressive (most strict)
+VAD_AGGR     = 2                                  # 2 = medium aggressiveness
 SILENCE_TMO  = 1.5                                # arrêt après 1.5 s de silence
 MIN_SPEECH_DURATION = 0.5                         # min seconds of speech to trigger
 SR           = 16000                              # sample-rate
@@ -141,8 +141,8 @@ class Client:
         print("🎤 En attente de parole…")
         from collections import deque
         audio_buffer = deque(maxlen=int(0.5 * SR / CHUNK))  # 500ms buffer
-        threshold = 300  # volume threshold
-        min_speech_frames = int(0.8 * 1000 / FRAME_MS)  # 800ms min speech
+        threshold = 150  # volume threshold
+        min_speech_frames = int(0.5 * 1000 / FRAME_MS)  # 500ms min speech
         speech_frames = 0
         consecutive_silence = 0
         
@@ -180,7 +180,7 @@ class Client:
     def _has_voice_frequency(self, pcm):
         """Check if audio contains voice frequencies"""
         # Simple implementation - can be enhanced with FFT
-        return audioop.avg(pcm, 2) > 100  # Basic voice frequency check
+        return audioop.avg(pcm, 2) > 50  # Basic voice frequency check (lower threshold)
 
     def _create_full_wav(self, audio_data):
         """Create complete WAV file with header"""
