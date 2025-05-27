@@ -40,12 +40,12 @@ def _delay_fail():
 # compute_type="float16" pour plus de précision si GPU disponible, sinon "int8"
 try:
     # Essayer d'utiliser float16 si GPU disponible
-    stt = WhisperModel("base", compute_type="float16")
-    print("[INFO] Whisper base chargé avec compute_type=float16 (GPU)")
+    stt = WhisperModel("small", compute_type="float16")
+    print("[INFO] Whisper small chargé avec compute_type=float16 (GPU)")
 except Exception:
     # Fallback sur int8 si pas de GPU
-    stt = WhisperModel("base", compute_type="int8")
-    print("[INFO] Whisper base chargé avec compute_type=int8 (CPU)")
+    stt = WhisperModel("small", compute_type="int8")
+    print("[INFO] Whisper small chargé avec compute_type=int8 (CPU)")
 
 # ❸  Appel Ollama
 def llama(prompt: str) -> str:
@@ -155,7 +155,6 @@ async def ask(
                 min_speech_duration_ms=250,  # Durée minimale de parole
                 max_speech_duration_s=float('inf'),  # Pas de limite max
                 min_silence_duration_ms=1000,  # Silence minimum entre segments
-                window_size_samples=1024,  # Taille de fenêtre pour l'analyse
                 speech_pad_ms=400  # Padding autour de la parole détectée
             ),
             word_timestamps=False,  # Pas besoin des timestamps par mot
@@ -209,7 +208,7 @@ async def health_check():
     """Endpoint pour vérifier que le serveur fonctionne"""
     return {
         "status": "ok",
-        "whisper_model": "base",
+        "whisper_model": "small",
         "llm_model": "mars-ia-llama3-8B-instruct-q4",
         "tts_voice": "fr_FR-siwis-medium"
     }
