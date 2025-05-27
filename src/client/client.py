@@ -19,6 +19,7 @@ import pyaudio
 import requests
 from robot_hat import Pin, Music
 from dotenv import load_dotenv, find_dotenv
+from piper import PiperVoice  # Pour TTS de secours
 
 # ─────────────── CONFIG ────────────────────────────────────────────
 load_dotenv(find_dotenv())
@@ -357,6 +358,14 @@ class Client:
         # Détection et enregistrement
         self.detector = OptimizedSpeechDetector()
         self.recorder = AudioRecorder()
+
+        # Initialisation TTS de secours
+        self.tts_voice = None
+        try:
+            self.tts_voice = PiperVoice.load("TTS/fr_FR-siwis-medium.onnx")
+            print("✓ TTS de secours initialisé")
+        except Exception as e:
+            print(f"⚠️ Impossible d'initialiser le TTS de secours: {e}")
         
         # Statistiques
         self.stats = {
@@ -476,7 +485,7 @@ class Client:
         self._print_stats()
                 
     def _send_and_play(self, wav_bytes: bytes):
-        """Envoie l'audio au serveur et joue la réponse"""
+        """Envoie l'audio au serveur et joue la réponse avec fallback TTS"""
         try:
             print("📡 Envoi au serveur...")
             self.stats['recordings_sent'] += 1
@@ -494,9 +503,14 @@ class Client:
             if "answer" in response_data:
                 print(f"🤖: {response_data['answer']}")
                 
-            if "audio" in response_data:
-                mp3_data = bytes.fromhex(response_data["audio"])
-                self.play_mp3(mp3_data)
+                if "audio" in response_data:
+                    mp3_data = bytes.fromhex(response_data["audio"])
+                    if not self.play_mp3(mp3_data) and self.tts_voice:
+                        # Fallback TTS si lecture MP3 échoue
+                        self._play_with_tts_fallback(response_data["answer"])
+                elif self.tts_voice:
+                    # Réponse texte seulement -> utiliser TTS
+                    self._play_with_tts_fallback(response_data["answer"])
                 
         except requests.exceptions.Timeout:
             print("❌ Timeout serveur")
@@ -506,18 +520,39 @@ class Client:
             print(f"❌ Erreur: {e}")
             
     def play_mp3(self, mp3_bytes: bytes):
-        """Lecture via l'API Music → haut-parleur PiCar-X"""
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
-            f.write(mp3_bytes)
-            path = f.name
+        """Lecture via l'API Music → haut-parleur PiCar-X avec fallback TTS"""
+        print("🔊 Tentative de lecture MP3...")
+        
+        # Vérifier si des données audio sont présentes
+        if not mp3_bytes or len(mp3_bytes) < 100:  # 100 bytes min
+            print("⚠️ Données MP3 absentes ou trop courtes")
+            return False
+            
+        # Créer un fichier temporaire
         try:
-            self.music.sound_play(path)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
+                f.write(mp3_bytes)
+                path = f.name
+                print(f"📂 Fichier temporaire créé ({len(mp3_bytes)} bytes)")
+                
+            # Tentative de lecture
+            try:
+                print("▶️ Lancement de la lecture...")
+                self.music.sound_play(path)
+                print("✓ Lecture MP3 réussie")
+                return True
+            except Exception as e:
+                print(f"❌ Échec lecture MP3: {e}")
+                return False
         finally:
-            os.remove(path)
+            try:
+                os.remove(path)
+            except:
+                pass
             
     def recalibrate(self):
         """Recalibration manuelle du bruit"""
-        print("\n📊 Recalibration manuelle...")
+        print("\n� Recalibration manuelle...")
         self.detector.calibrate(self.stream)
         
     def _print_stats(self):
@@ -530,6 +565,35 @@ class Client:
             print(f"  - Précision de détection: {accuracy:.1f}%")
         print(f"  - Dernier SNR: {self.stats['last_snr']:.1f} dB")
         
+    def _play_with_tts_fallback(self, text: str):
+        """Joue le texte via TTS de secours"""
+        if not self.tts_voice:
+            print("⚠️ TTS de secours non disponible")
+            return
+            
+        print("🔊 Utilisation du TTS de secours...")
+        
+        try:
+            # Créer un fichier WAV temporaire
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
+                path = f.name
+                print(f"📂 Génération TTS pour: '{text}'")
+                
+                # Synthétiser la voix
+                self.tts_voice.synthesize(text, f)
+                
+                # Lire le fichier généré
+                print("▶️ Lecture TTS...")
+                self.music.sound_play(path)
+                print("✓ Lecture TTS réussie")
+        except Exception as e:
+            print(f"❌ Erreur TTS: {e}")
+        finally:
+            try:
+                os.remove(path)
+            except:
+                pass
+
     def cleanup(self):
         """Nettoyage des ressources"""
         if self.stream:
