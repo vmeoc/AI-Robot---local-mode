@@ -1,0 +1,21 @@
+# Requirements pour Raspberry Pi 5
+# Installation: pip install -r requirements_pi.txt
+
+# Audio
+pyaudio==0.2.14
+webrtcvad==2.0.10
+
+# Calcul numérique (version optimisée pour ARM)
+numpy==1.24.4
+
+# Réseau
+requests==2.31.0
+
+# Variables d'environnement
+python-dotenv==1.0.0
+
+# Robot HAT (déjà installé avec PiCar-X)
+# robot-hat==2.0.0
+
+# Wake word detection (optionnel, si vous voulez réactiver)
+# pvporcupine==3.0.0

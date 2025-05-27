@@ -131,7 +131,7 @@ Implementation stub is in `client.py`; next tasks:
 
 ## 6 · Next steps
 
-1. Finish `client.py` and test the full LAN round‑trip. Improve the voice capture to capture the whole phrase. At the moment, 
+1. Finish `client.py` and test the full LAN round‑trip. Improve the voice capture to capture the whole phrase. At the moment, when speaking to the robot, it does not trigger the emission of the request to the server. But before, it was the opposite. How to make this reliable?
 2. Benchmark latency & tokens/s, tweak Whisper size (tiny → base) if accuracy too low.
 3. Introduce Piper EN/ES or switch to Orca if we need faster TTS.
 4. Add command intents (Rhino) or Ollama function‑calling for robot motion.
