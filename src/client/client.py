@@ -88,9 +88,9 @@ class Client:
 
     # ---------------- Wake-word ----------------
     def _setup_wake_word(self):
-        access_key = os.getenv("PORCOVINE_ACCESS_KEY")
+        access_key = os.getenv("PORCUPINE_ACCESS_KEY")
         if not access_key:
-            raise ValueError("PORCOVINE_ACCESS_KEY manquant dans .env")
+            raise ValueError("PORCUPINE_ACCESS_KEY manquant dans .env")
 
         keyword_path = os.path.join(
             os.path.dirname(__file__),
