@@ -122,7 +122,7 @@ class Client:
             if "mic" in name or "i2s" in name:
                 return i
         return None                               # laisser PyAudio choisir
-def _setup_audio_input(self):
+    def _setup_audio_input(self):
         self.pa = pyaudio.PyAudio()
         frames_per_buf = self.porcupine.frame_length // 2
         try:
