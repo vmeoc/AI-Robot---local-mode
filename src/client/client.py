@@ -53,6 +53,9 @@ class AudioRecorder:
         self.frames = []
         self.stream = self._open_stream()
 
+        # Add WAV header (44 bytes)
+        self.frames.append(self._create_wav_header(0))  # Placeholder for final size
+
         silent_cnt   = 0
         silent_max   = int(SILENCE_TMO * 1000 / FRAME_MS)
 
@@ -71,7 +74,32 @@ class AudioRecorder:
 
         self.stream.stop_stream()
         self.stream.close()
-        return b"".join(self.frames)
+
+        # Update WAV header with actual data size
+        data = b"".join(self.frames[1:])  # Skip header
+        header = self._create_wav_header(len(data))
+        return header + data
+
+    def _create_wav_header(self, data_size):
+        """Generate proper WAV header for 16-bit mono PCM"""
+        import struct
+        header = struct.pack(
+            '<4sI4s4sIHHIIHH4sI',
+            b'RIFF',
+            data_size + 36,  # Total file size - 8
+            b'WAVE',
+            b'fmt ',
+            16,  # fmt chunk size
+            1,   # PCM format
+            1,   # Mono
+            SR,  # Sample rate
+            SR * 2,  # Byte rate (sample rate * bytes per sample)
+            2,   # Block align (bytes per sample * channels)
+            16,  # Bits per sample
+            b'data',
+            data_size
+        )
+        return header
 
 
 # ─────────────── CLIENT PRINCIPAL ─────────────────────────────────
