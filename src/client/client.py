@@ -1,147 +1,189 @@
+#!/usr/bin/env python3
+"""
+client.py – PiCar-X : écoute mot-clé → enregistrement → envoi serveur → lecture réponse
+Compatible Raspberry Pi 5 + Robot HAT v2.0
+"""
+
 import os
 import time
-import threading
+import tempfile
+
 import webrtcvad
 import pyaudio
 import requests
+import pvporcupine                    # ← pour LIBRARY_PATH / MODEL_PATH
 from pvporcupine import Porcupine
-from robot_hat import Pin
-import subprocess
+from robot_hat import Pin, Music
 from dotenv import load_dotenv, find_dotenv
 
+# ─────────────── CONFIG ────────────────────────────────────────────
+load_dotenv(find_dotenv())            # charge .env s'il existe
 
-load_dotenv(find_dotenv())  # charge un éventuel fichier .env
+API_ENDPOINT = "http://192.168.110.35:8000/ask"   # IP du serveur
+API_TOKEN    = os.getenv("API_TOKEN")             # Bearer token
+WAKE_WORD    = "Mars réveille toi"                # label descriptif
+VAD_AGGR     = 3                                  # 1 (doux) → 3 (très agressif)
+SILENCE_TMO  = 0.5                                # arrêt après 0,5 s de silence
+SR           = 16000                              # sample-rate
+FRAME_MS     = 30                                 # longueur trame (ms)
+CHUNK        = int(SR * FRAME_MS / 1000)          # = 480 échantillons
 
-# Configuration
-API_ENDPOINT = "http://192.168.110.35:8000/ask"  # À modifier avec l'IP du serveur
-API_TOKEN = os.getenv("API_TOKEN")  # Token d'authentification
-WAKE_WORD = "Mars réveille toi"  # Mot de réveil
-VAD_AGGRESSIVENESS = 3  # Niveau d'agressivité du VAD (1-3)
-SILENCE_TIMEOUT = 0.5  # Temps de silence pour arrêter l'enregistrement (secondes)
-SAMPLE_RATE = 16000  # Taux d'échantillonnage (Hz)
-FRAME_DURATION = 30  # Durée d'une trame audio (ms)
-CHUNK_SIZE = int(SAMPLE_RATE * FRAME_DURATION / 1000)  # Taille d'un chunk audio
-
-# Initialisation des LEDs
+# LED sur le Robot HAT
 led = Pin('LED')
 
+
+# ─────────────── AUDIO RECORD ──────────────────────────────────────
 class AudioRecorder:
+    """VAD + buffer circulaire – renvoie un WAV brut (bytes)"""
     def __init__(self):
-        self.vad = webrtcvad.Vad(VAD_AGGRESSIVENESS)
+        self.vad   = webrtcvad.Vad(VAD_AGGR)
         self.audio = pyaudio.PyAudio()
         self.stream = None
-        self.recording = False
         self.frames = []
-        
-    def start_recording(self):
-        self.recording = True
-        self.frames = []
-        self.stream = self.audio.open(
+
+    def _open_stream(self):
+        return self.audio.open(
             format=pyaudio.paInt16,
             channels=1,
-            rate=SAMPLE_RATE,
+            rate=SR,
             input=True,
-            frames_per_buffer=CHUNK_SIZE
+            frames_per_buffer=CHUNK
         )
-        
-    def stop_recording(self):
-        self.recording = False
-        if self.stream:
-            self.stream.stop_stream()
-            self.stream.close()
-        return b''.join(self.frames)
-        
+
     def record_until_silence(self):
-        self.start_recording()
-        silent_frames = 0
-        silence_threshold = int(SILENCE_TIMEOUT * 1000 / FRAME_DURATION)
-        
-        while self.recording:
-            frame = self.stream.read(CHUNK_SIZE)
-            is_speech = self.vad.is_speech(frame, SAMPLE_RATE)
-            
-            if is_speech:
-                silent_frames = 0
+        self.frames = []
+        self.stream = self._open_stream()
+
+        silent_cnt   = 0
+        silent_max   = int(SILENCE_TMO * 1000 / FRAME_MS)
+
+        while True:
+            frame = self.stream.read(CHUNK, exception_on_overflow=False)
+            speech = self.vad.is_speech(frame, SR)
+
+            if speech:
+                silent_cnt = 0
                 self.frames.append(frame)
             else:
-                silent_frames += 1
-                if silent_frames > silence_threshold:
+                silent_cnt += 1
+                if silent_cnt > silent_max:
                     break
                 self.frames.append(frame)
-                
-        return self.stop_recording()
 
+        self.stream.stop_stream()
+        self.stream.close()
+        return b"".join(self.frames)
+
+
+# ─────────────── CLIENT PRINCIPAL ─────────────────────────────────
 class Client:
     def __init__(self):
+        # Music : gère la sortie haut-parleur PiCar-X
+        self.music = Music()
+        self.music.music_set_volume(70)            # 0-100
+
         self.recorder = AudioRecorder()
+        self._setup_wake_word()
+        self._setup_audio_input()
+
+    # ---------------- Wake-word ----------------
+    def _setup_wake_word(self):
+        key = os.getenv("PORCUPINE_ACCESS_KEY")
+        if not key:
+            raise ValueError("PORCUPINE_ACCESS_KEY manquant dans .env")
+
+        model_path = pvporcupine.MODEL_PATH
+        keyword_path = os.path.join(os.path.dirname(__file__), "hey_mars.ppn")
+        if not os.path.exists(keyword_path):
+            raise FileNotFoundError(f"Fichier wake-word absent : {keyword_path}")
+
         self.porcupine = Porcupine(
-            access_key=os.getenv("PORCUPINE_ACCESS_KEY"),
-            keyword_paths=[os.path.join(os.path.dirname(__file__), "Mars-réveille-toi_fr_raspberry-pi_v3_0_0.ppn")]
+            access_key=key,
+            library_path=pvporcupine.LIBRARY_PATH,
+            model_path=model_path,
+            keyword_paths=[keyword_path],
+            sensitivities=[0.5],
         )
-        self.audio = pyaudio.PyAudio()
-        self.stream = self.audio.open(
-            rate=self.porcupine.sample_rate,
-            channels=1,
-            format=pyaudio.paInt16,
-            input=True,
-            frames_per_buffer=self.porcupine.frame_length
-        )
-        
-    def listen_for_wake_word(self):
-        while True:
-            pcm = self.stream.read(self.porcupine.frame_length)
-            result = self.porcupine.process(pcm)
-            
-            if result >= 0:  # Wake word détecté
-                led.on()  # Allumer LED
-                audio_data = self.recorder.record_until_silence()
-                led.off()  # Éteindre LED
-                self.process_audio(audio_data)
-                
-    def process_audio(self, audio_data):
-        # Enregistrer temporairement le WAV
-        temp_file = "/tmp/voice_command.wav"
-        with open(temp_file, "wb") as f:
-            f.write(audio_data)
-            
-        # Envoyer au serveur
+
+    # ---------------- Micro ----------------
+    def _find_input_device(self):
+        pa = pyaudio.PyAudio()
+        for i in range(pa.get_device_count()):
+            name = pa.get_device_info_by_index(i)["name"].lower()
+            if "mic" in name or "i2s" in name:
+                return i
+        return None                               # laisser PyAudio choisir
+
+    def _setup_audio_input(self):
+        self.pa = pyaudio.PyAudio()
         try:
-            response = requests.post(
+            self.wk_stream = self.pa.open(
+                rate=self.porcupine.sample_rate,
+                channels=1,
+                format=pyaudio.paInt16,
+                input=True,
+                frames_per_buffer=self.porcupine.frame_length,
+                input_device_index=self._find_input_device(),
+            )
+        except OSError:
+            # dernier recours : périphérique par défaut
+            self.wk_stream = self.pa.open(
+                rate=self.porcupine.sample_rate,
+                channels=1,
+                format=pyaudio.paInt16,
+                input=True,
+                frames_per_buffer=self.porcupine.frame_length,
+            )
+
+    # ---------------- Boucle principale ----------------
+    def listen_forever(self):
+        print("💤 En attente du mot-clé…")
+        while True:
+            pcm = self.wk_stream.read(self.porcupine.frame_length,
+                                      exception_on_overflow=False)
+            if self.porcupine.process(pcm) >= 0:
+                print("🔊 Wake-word détecté !")
+                led.on()
+                wav = self.recorder.record_until_silence()
+                led.off()
+                self._send_and_play(wav)
+
+    # ---------------- API + playback ----------------
+    def _send_and_play(self, wav_bytes: bytes):
+        try:
+            resp = requests.post(
                 API_ENDPOINT,
                 headers={"Authorization": f"Bearer {API_TOKEN}"},
-                files={"file": open(temp_file, "rb")},
-                timeout=10
+                files={"file": ("voice.wav", wav_bytes, "audio/wav")},
+                timeout=20,
             )
-            
-            if response.status_code == 200:
-                self.play_mp3(response.json()["audio"])
-                
-        except Exception as e:
-            print(f"Erreur lors de la communication avec le serveur: {e}")
-            
-    def play_mp3(self, mp3_data):
-        # Jouer le MP3 avec mpg123
-        process = subprocess.Popen(
-            ["mpg123", "-"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        process.communicate(input=mp3_data)
-        
+            resp.raise_for_status()
+            mp3_data = resp.json()["audio"]        # ← le serveur renvoie les octets
+            self.play_mp3(mp3_data)
+        except Exception as exc:
+            print("❌ Erreur serveur :", exc)
+
+    def play_mp3(self, mp3_bytes: bytes):
+        """Lecture via l’API Music → haut-parleur PiCar-X"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
+            f.write(mp3_bytes)
+            path = f.name
+        self.music.sound_play(path)
+        os.remove(path)
+
+    # ---------------- Clean exit ----------------
     def cleanup(self):
-        self.stream.close()
-        self.audio.terminate()
+        self.wk_stream.close()
+        self.pa.terminate()
         self.porcupine.delete()
 
-def main():
+
+# ─────────────── MAIN ─────────────────────────────────────────────
+if __name__ == "__main__":
     client = Client()
     try:
-        client.listen_for_wake_word()
+        client.listen_forever()
     except KeyboardInterrupt:
-        pass
+        print("\nArrêt demandé par l’utilisateur.")
     finally:
         client.cleanup()
-
-if __name__ == "__main__":
-    main()
