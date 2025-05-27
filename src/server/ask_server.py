@@ -119,8 +119,16 @@ async def ask(
 ):
     check_auth(authorization)
 
-    # 1) Sauvegarde temporaire pour Whisper
+    # 1) Sauvegarde des fichiers entrants pour analyse
+    os.makedirs("received_audio", exist_ok=True)
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    save_path = f"received_audio/audio_{timestamp}.wav"
+    
     audio_bytes = await file.read()
+    with open(save_path, "wb") as f:
+        f.write(audio_bytes)
+    
+    # Crée aussi un fichier temporaire pour Whisper
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
         tmp.write(audio_bytes)
         tmp_path = tmp.name

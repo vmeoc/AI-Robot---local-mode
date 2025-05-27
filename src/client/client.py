@@ -21,9 +21,9 @@ load_dotenv(find_dotenv())            # charge .env s'il existe
 
 API_ENDPOINT = "http://192.168.110.35:8000/ask"   # IP du serveur
 API_TOKEN    = os.getenv("API_TOKEN")             # Bearer token
-VAD_AGGR     = 2                                  # 2 = medium aggressiveness
-SILENCE_TMO  = 1.0                                # arrêt après 1.0 s de silence
-MIN_SPEECH_DURATION = 0.3                         # min seconds of speech to trigger
+VAD_AGGR     = 1                                  # 1 = least aggressive (most strict)
+SILENCE_TMO  = 1.5                                # arrêt après 1.5 s de silence
+MIN_SPEECH_DURATION = 0.5                         # min seconds of speech to trigger
 SR           = 16000                              # sample-rate
 FRAME_MS     = 30                                 # longueur trame (ms)
 CHUNK        = int(SR * FRAME_MS / 1000)          # = 480 échantillons
