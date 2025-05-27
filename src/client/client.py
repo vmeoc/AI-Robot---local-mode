@@ -11,7 +11,7 @@ import tempfile
 import webrtcvad
 import pyaudio
 import requests
-import pvporcupine                    # ← pour LIBRARY_PATH / MODEL_PATH
+import pvporcupine            # plus besoin de LIBRARY_PATH / MODEL_PATH
 from pvporcupine import Porcupine
 from robot_hat import Pin, Music
 from dotenv import load_dotenv, find_dotenv
@@ -88,22 +88,20 @@ class Client:
 
     # ---------------- Wake-word ----------------
     def _setup_wake_word(self):
-        key = os.getenv("PORCUPINE_ACCESS_KEY")
-        if not key:
-            raise ValueError("PORCUPINE_ACCESS_KEY manquant dans .env")
+    access_key = os.getenv("PORCUPINE_ACCESS_KEY")
+    if not access_key:
+        raise ValueError("PORCUPINE_ACCESS_KEY manquant dans .env")
 
-        model_path = pvporcupine.MODEL_PATH
-        keyword_path = os.path.join(os.path.dirname(__file__), "hey_mars.ppn")
-        if not os.path.exists(keyword_path):
-            raise FileNotFoundError(f"Fichier wake-word absent : {keyword_path}")
+    keyword_path = os.path.join(os.path.dirname(__file__), "hey_mars.ppn")
+    if not os.path.exists(keyword_path):
+        raise FileNotFoundError(f"Wake-word absent : {keyword_path}")
 
-        self.porcupine = Porcupine(
-            access_key=key,
-            library_path=pvporcupine.LIBRARY_PATH,
-            model_path=model_path,
-            keyword_paths=[keyword_path],
-            sensitivities=[0.5],
-        )
+    # API ≥ 3 : utilisation de la factory `create`
+    self.porcupine = pvporcupine.create(
+        access_key=access_key,
+        keyword_paths=[keyword_path],
+        sensitivities=[0.5],
+    )
 
     # ---------------- Micro ----------------
     def _find_input_device(self):
