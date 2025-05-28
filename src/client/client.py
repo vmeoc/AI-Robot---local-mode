@@ -26,6 +26,7 @@ load_dotenv(find_dotenv())
 
 API_ENDPOINT = "http://192.168.110.35:8000/ask"
 API_TOKEN    = os.getenv("API_TOKEN")
+print("[INFO] API_TOKEN chargé :", API_TOKEN[:8] if API_TOKEN else "<vide>")
 SR           = 16000
 FRAME_MS     = 30
 CHUNK        = int(SR * FRAME_MS / 1000)
