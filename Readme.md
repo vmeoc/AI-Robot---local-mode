@@ -2,6 +2,7 @@
 
 Transform your [Sunfounder PiCar-X](https://www.sunfounder.com/products/picar-x?ref=luckyday&gad_source=1&gad_campaignid=22592763779&gbraid=0AAAAA_u_cfN7qILs3TPP89J_CodjDeyXX&gclid=Cj0KCQjwotDBBhCQARIsAG5pinOjfLEk2BrIwIBAsutfu-dz9eeVdjQR9jZwXNEfIrKJVoDinXrwccsaArTKEALw_wcB) into a smart, voice-activated robot powered by local Large Language Models (LLMs).
 No cloud. No lag. Just fast, private AI at your fingertips.
+Can also be used to turn your Raspberry Pi in a google home like powered by your LLM of choice
 
 ---
 
@@ -69,6 +70,52 @@ User → PiCar-X Mic → (client.py) → Local PC (ask_server.py + Ollama) → L
 ### On Raspberry Pi (PiCar-X)
 
 1. Enable microphone and speaker support.
+1.1.
+Create /root/.asoundrc or /etc/asound.conf with:
+############################################################
+# 1) Mixeur logiciel pour le playback sur le Robot HAT
+pcm.dmixer {
+    type     dmix
+    ipc_key  1024
+    slave {
+        pcm         "hw:0,0"    # HAT = card 0, device 0
+        rate        48000       # fréquence native du DAC
+        period_size 1024
+        buffer_size 4096
+    }
+}
+
+############################################################
+# 2) Plug pour la capture USB Mic
+#    convertit 16 kHz → 48 kHz pour le hardware
+pcm.capplug {
+    type plug
+    slave {
+        pcm    "hw:1,0"    # Micro USB = card 1, device 0
+        rate   48000       # fréquence native du mic
+    }
+}
+
+############################################################
+# 3) Périphérique asymétrique (playback vs capture)
+pcm.asym {
+    type          asym
+    playback.pcm  "dmixer"
+    capture.pcm   "capplug"
+}
+
+############################################################
+# 4) Définit 'default' sur cet asynchrone avec resampling
+pcm.!default {
+    type     plug
+    slave.pcm "asym"
+}
+
+ctl.!default {
+    type hw
+    card 0            # contrôle global sur la carte 0 (HAT)
+}
+
 2. Install Python dependencies:
 
    ```bash
@@ -77,7 +124,7 @@ User → PiCar-X Mic → (client.py) → Local PC (ask_server.py + Ollama) → L
    source .venv/bin/activate
    pip install pvporcupine webrtcvad pyaudio requests
    ```
-3. Run the client:
+3. Run the client in the root session:
 
    ```bash
    python client.py
