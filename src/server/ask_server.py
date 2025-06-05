@@ -23,6 +23,10 @@ VOICE_PATH = r"C:\Users\vince\Documents\VS Code\Dev\AI Robot - local mode\TTS\fr
 PIPER_TTS_EXE = r"C:\Users\vince\Documents\VS Code\Dev\AI Robot - local mode\.venv\Scripts\piper-tts.exe"
 LLM= "mars-ia-llama3-8B-instruct-q4" #mars-ia-llama3-8B-instruct-q4 ou gemma3:1b
 SYSTEM_PROMPT = "Tu es un robot avec des roues. Tu joues avec des enfants de 10 et 12 ans. Ne réponds que par du texte. Pas d'onomatopé ou de symbole comme * car le texte sera ensuite parlé à voix haute par le robot. Répond pas des phrases courtes."
+
+# Conversation history
+conversation_history = []
+MAX_HISTORY_TURNS = 5  # Number of user/assistant pairs to keep
 # ───────────────────────────────────────────────────────────────────
 
 # ❶  Sécurité – fail-delay
@@ -51,15 +55,19 @@ except Exception:
 
 # ❸  Appel Ollama
 def llama(prompt: str) -> str:
+    global conversation_history # Declare intent to modify global variable
+
+    # Prepare messages for Ollama, including history
+    messages_payload = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages_payload.extend(conversation_history)
+    messages_payload.append({"role": "user", "content": prompt})
+
     try:
         rsp = requests.post(
             OLLAMA_URL,
             json={
                 "model": LLM,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
-                ],
+                "messages": messages_payload,
                 "stream": False,
             },
             timeout=60,
@@ -72,7 +80,17 @@ def llama(prompt: str) -> str:
         # print(f"[LLAMA DEBUG] Réponse complète: {response_json}") 
         
         if "message" in response_json and isinstance(response_json["message"], dict) and "content" in response_json["message"]:
-            return response_json["message"]["content"]
+            assistant_response = response_json["message"]["content"]
+            
+            # Add current exchange to history
+            conversation_history.append({"role": "user", "content": prompt})
+            conversation_history.append({"role": "assistant", "content": assistant_response})
+            
+            # Prune history if it's too long
+            if len(conversation_history) > MAX_HISTORY_TURNS * 2:
+                conversation_history = conversation_history[-(MAX_HISTORY_TURNS * 2):]
+                
+            return assistant_response
         elif "error" in response_json:
             error_message = response_json["error"]
             print(f"[LLAMA ERROR] Ollama a retourné une erreur: {error_message}")
