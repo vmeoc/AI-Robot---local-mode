@@ -21,6 +21,7 @@ print("[INFO] API_TOKEN chargé :", API_TOKEN[:8] if API_TOKEN else "<vide>")
 OLLAMA_URL = "http://127.0.0.1:11434/api/chat"       # Ollama « robot-mistral »
 VOICE_PATH = r"C:\Users\vince\Documents\VS Code\Dev\AI Robot - local mode\TTS\fr_FR-siwis-medium.onnx"
 PIPER_TTS_EXE = r"C:\Users\vince\Documents\VS Code\Dev\AI Robot - local mode\.venv\Scripts\piper-tts.exe"
+LLM= "mars-ia-llama3-8B-instruct-q4" #mars-ia-llama3-8B-instruct-q4 ou gemma3:1b
 # ───────────────────────────────────────────────────────────────────
 
 # ❶  Sécurité – fail-delay
@@ -53,7 +54,7 @@ def llama(prompt: str) -> str:
         rsp = requests.post(
             OLLAMA_URL,
             json={
-                "model": "mars-ia-llama3-8B-instruct-q4",
+                "model": LLM,
                 "messages": [{"role": "user", "content": prompt}],
                 "stream": False,
             },
@@ -223,7 +224,7 @@ if __name__ == "__main__":
     print(f"📍 Endpoint: http://0.0.0.0:8000/ask")
     print(f"🔐 Token requis: {'Oui' if API_TOKEN else 'Non'}")
     print(f"🎙️  Modèle STT: Whisper base")
-    print(f"🤖 Modèle LLM: mars-ia-llama3-8B-instruct-q4")
+    print(f"🤖 Modèle LLM: {LLM}")
     print(f"🔊 Voix TTS: fr_FR-siwis-medium")
     print("=" * 60)
 
