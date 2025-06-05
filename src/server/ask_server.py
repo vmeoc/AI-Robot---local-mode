@@ -22,6 +22,7 @@ OLLAMA_URL = "http://127.0.0.1:11434/api/chat"       # Ollama « robot-mistral �
 VOICE_PATH = r"C:\Users\vince\Documents\VS Code\Dev\AI Robot - local mode\TTS\fr_FR-siwis-medium.onnx"
 PIPER_TTS_EXE = r"C:\Users\vince\Documents\VS Code\Dev\AI Robot - local mode\.venv\Scripts\piper-tts.exe"
 LLM= "mars-ia-llama3-8B-instruct-q4" #mars-ia-llama3-8B-instruct-q4 ou gemma3:1b
+SYSTEM_PROMPT = "Tu es un robot avec des roues. Tu joues avec des enfants de 10 et 12 ans. Ne réponds que par du texte. Pas d'onomatopé ou de symbole comme * car le texte sera ensuite parlé à voix haute par le robot. Répond pas des phrases courtes."
 # ───────────────────────────────────────────────────────────────────
 
 # ❶  Sécurité – fail-delay
@@ -55,7 +56,10 @@ def llama(prompt: str) -> str:
             OLLAMA_URL,
             json={
                 "model": LLM,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ],
                 "stream": False,
             },
             timeout=60,
