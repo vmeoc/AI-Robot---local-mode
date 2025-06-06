@@ -24,7 +24,7 @@ import argparse
 import json
 import threading
 from picarx import Picarx
-from .preset_actions import actions_dict, sounds_dict
+from preset_actions import actions_dict, sounds_dict
 
 # ─────────────── CONFIG ────────────────────────────────────────────
 load_dotenv(find_dotenv())
