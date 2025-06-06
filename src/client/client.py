@@ -23,6 +23,7 @@ from piper import PiperVoice  # Pour TTS de secours
 import argparse
 import json
 import threading
+import subprocess
 from picarx import Picarx
 from preset_actions import actions_dict, sounds_dict
 
@@ -584,6 +585,56 @@ class Client:
         except Exception as e:
             print(f"❌ Erreur inattendue lors de l'envoi/réception: {e}")
             return None
+
+    def play_mp3(self, mp3_bytes: bytes) -> bool:
+        """Joue des bytes MP3 en utilisant mpg123."""
+        if not mp3_bytes:
+            print("[PLAY_MP3] No MP3 data to play.")
+            return False
+        
+        tmp_mp3_path = None # Initialize to ensure it's defined in finally if tempfile fails
+        process = None # Initialize for timeout handling
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_mp3:
+                tmp_mp3.write(mp3_bytes)
+                tmp_mp3_path = tmp_mp3.name
+            
+            # print(f"[PLAY_MP3] Playing audio from {tmp_mp3_path}...") # Less verbose
+            # Using -q for quiet mode to suppress mpg123's own messages
+            cmd = ["mpg123", "-q", tmp_mp3_path]
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = process.communicate(timeout=30) # Timeout after 30s
+
+            if process.returncode != 0:
+                print(f"[PLAY_MP3_ERROR] mpg123 failed. RC: {process.returncode}")
+                # if stdout: print(f"   stdout: {stdout.decode(errors='ignore')}") # Usually not needed for -q
+                if stderr: print(f"   stderr: {stderr.decode(errors='ignore')}")
+                return False
+            
+            # print("[PLAY_MP3] Playback finished.") # Less verbose
+            return True
+
+        except FileNotFoundError:
+            print("[PLAY_MP3_ERROR] mpg123 command not found. Please install mpg123.")
+            print("   On Raspberry Pi / Debian: sudo apt install mpg123")
+            return False
+        except subprocess.TimeoutExpired:
+            print("[PLAY_MP3_ERROR] mpg123 playback timed out.")
+            if process: 
+                try:
+                    process.kill()
+                except Exception as e_kill:
+                    print(f"[PLAY_MP3_WARN] Error killing timed-out process: {e_kill}")
+            return False
+        except Exception as e:
+            print(f"[PLAY_MP3_ERROR] Failed to play MP3: {e}")
+            return False
+        finally:
+            if tmp_mp3_path and os.path.exists(tmp_mp3_path):
+                try:
+                    os.remove(tmp_mp3_path)
+                except Exception as e_del:
+                    print(f"[PLAY_MP3_WARN] Could not delete temp file {tmp_mp3_path}: {e_del}")
 
     def _perform_actions(self):
         """Exécute les actions reçues du serveur"""
