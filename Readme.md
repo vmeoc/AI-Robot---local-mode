@@ -8,11 +8,11 @@ Can also be used to turn your Raspberry Pi in a google home like powered by your
 
 ## 🚀 Features
 
-* **Wake word detection** — say the magic word to wake up your robot.
 * **Voice request capture** — record your question directly from the robot.
 * **On-premise processing** — audio is sent to your local computer for analysis.
-* **LLM-powered intelligence** — local LLM (via [Ollama](https://ollama.com/)) generates a reply.
+* **LLM-powered intelligence** — local LLM (via [Ollama](https://ollama.com/)) generates a reply (Mistral, Gemma, Llama, etc..).
 * **Text-to-speech (TTS)** — reply is converted to audio and played back on the robot.
+* **Robot Actions** — LLM can command the robot to perform pre-defined actions (e.g., wave hands, nod, express emotions) synchronized with its speech.
 
 All processing is done locally — ensuring fast responses and data privacy.
 
@@ -21,7 +21,7 @@ All processing is done locally — ensuring fast responses and data privacy.
 ## 📂 Project Architecture
 
 ```plaintext
-User → PiCar-X Mic → (client.py) → Local PC (ask_server.py + Ollama) → LLM → TTS → Audio → PiCar-X Speaker
+User → PiCar-X Mic → (client.py) → Local PC (ask_server.py + Ollama) → LLM (generates Text + Actions) → TTS (for Text) → Server sends (Audio + Action List) → PiCar-X (Speaker plays Audio, client.py executes Actions)
 ```
 
 ---
@@ -33,8 +33,9 @@ User → PiCar-X Mic → (client.py) → Local PC (ask_server.py + Ollama) → L
 * Receives audio from PiCar-X
 * Transcribes speech
 * Sends prompt to LLM via Ollama
-* Converts response into speech (TTS)
-* Returns audio file to PiCar-X
+* Extracts text and action commands from LLM's JSON response
+* Converts textual response into speech (TTS)
+* Returns both the audio file and the list of actions to PiCar-X
 
 > ✅ Requires [Ollama](https://ollama.com) with a compatible LLM installed (e.g. `llama3`, `mistral`, etc.)
 
@@ -42,10 +43,12 @@ User → PiCar-X Mic → (client.py) → Local PC (ask_server.py + Ollama) → L
 
 ### 🤖 `client.py` (runs on the PiCar-X / Raspberry Pi)
 
-* Detects wake word using Porcupine
+* Detects sound environment and caliber the mic input settings
 * Records voice input
 * Sends audio to `ask_server.py`
-* Receives audio reply and plays it through speaker
+* Receives audio reply and a list of action commands
+* Plays the audio reply through the speaker
+* Executes the received robot actions using `preset_actions.py`
 
 ---
 
@@ -145,7 +148,7 @@ MIT License
 ## 👌 Credits
 
 * Based on the [PiCar-X by Sunfounder](https://www.sunfounder.com/products/picar-x)
-* Wake-word detection via [Picovoice Porcupine](https://github.com/Picovoice/porcupine)
+
 * Local LLM support powered by [Ollama](https://ollama.com)
 
 ---

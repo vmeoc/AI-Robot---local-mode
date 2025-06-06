@@ -22,12 +22,13 @@ Pi 5 (wake‑word + VAD)  ──WAV──▶  FastAPI /ask  ──MP3──▶  
 
 | Path                           | Role                                                          |
 | ------------------------------ | ------------------------------------------------------------- |
-| `src/server/ask_server.py`     | FastAPI endpoint `/ask` → STT → LLM → TTS → MP3               |
-| `src/client/client.py`         | Runs on the Pi 5 – wake‑word, VAD, POST wav, play mp3         |
+| `src/server/ask_server.py`     | FastAPI endpoint `/ask` → STT → LLM (Text+Actions) → TTS → Returns MP3 & Action List |
+| `src/client/client.py`         | Runs on Pi 5 – wake‑word, VAD, POST wav, plays MP3, executes actions based on LLM output |
 | `.env`                         | Stores `API_TOKEN=` so the server never hard‑codes the secret |
 | `TTS/fr_FR‑siwis‑medium.onnx`  | Single Piper voice (≈ 60 MB)                                  |
 | `Models/**`                    | Ollama personality & system prompt                            |
 | `src/client/AUDIO_IMPROVEMENTS.md` | Documentation des améliorations audio                     |
+| `src/client/preset_actions.py` | Defines robot actions (functions) mapped to string keys used by LLM |
 
 ---
 
@@ -93,7 +94,7 @@ python utils\play_json.py reply.json  # writes response.mp3 & plays it
 | ------------------------ | ----------------------------------------------------- |
 | **Wake-word integration** | Re-enable Porcupine for hands-free activation       |
 | **Voice variety**        | add EN/ES Piper voices + language→voice map.          |
-| **Robo-commands**        | later: Rhino or LLM function-calling to drive motors. |
+
 
 ### 🎤 Audio Quality Improvements
 
@@ -113,6 +114,14 @@ python utils\play_json.py reply.json  # writes response.mp3 & plays it
    - VAD filter enabled with tuned parameters
    - Beam size increased to 5
    - Initial prompt helps with French recognition
+
+4. **Robot Actions and Synchronization**:
+      - The LLM, guided by an updated system prompt, now returns a JSON object containing both the textual response (`answer_text`) and a list of desired robot actions (`actions_list`).
+      - `ask_server.py` parses this JSON. The `answer_text` is sent to TTS, and the `actions_list` is forwarded to the client alongside the audio.
+      - `client.py` on the PiCar-X receives both the audio and the `actions_list`.
+      - It plays the audio and then iterates through the `actions_list`, executing each action by calling corresponding functions defined in `src/client/preset_actions.py`.
+      - This allows for synchronized speech and movement, making the robot's interactions more expressive and engaging.
+      - Action names in the LLM prompt are carefully matched with function keys in `preset_actions.py` to ensure correct execution.
 
 ### Known Issues
 
@@ -146,7 +155,9 @@ python utils\play_json.py reply.json  # writes response.mp3 & plays it
 1. **Hardware**: Test with USB microphone for better audio quality (recommended: Blue Yeti Nano, Samson Go Mic)
 2. **Local STT**: Consider Vosk for on-device transcription to reduce latency
 3. **Wake Word**: Re-integrate Porcupine with improved audio pipeline
-4. **Voice Commands**: Add command intents (Rhino) or Ollama function‑calling for robot motion
+4. **Enhanced Voice Commands**: Further refine robot motion capabilities, potentially exploring more complex sequences or context-aware actions beyond the current pre-defined list.
+5. ** add english support**
+6. ** browse web**
 
 ### Usage Tips
 
