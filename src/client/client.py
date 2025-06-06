@@ -20,6 +20,11 @@ import requests
 from robot_hat import Pin, Music
 from dotenv import load_dotenv, find_dotenv
 from piper import PiperVoice  # Pour TTS de secours
+import argparse
+import json
+import threading
+from picarx import Picarx
+from .preset_actions import actions_dict, sounds_dict
 
 # ─────────────── CONFIG ────────────────────────────────────────────
 load_dotenv(find_dotenv())
@@ -346,7 +351,13 @@ class DeviceSelector:
 
 # ─────────────── CLIENT PRINCIPAL ─────────────────────────────────
 class Client:
-    def __init__(self):
+    def __init__(self, args):
+        self.args = args
+        self.my_car = None
+        self.action_thread = None
+        self.action_queue = deque()
+        self.action_stop_event = threading.Event()
+
         # Music : gère la sortie haut-parleur PiCar-X
         self.music = Music()
         self.music.music_set_volume(70)
@@ -378,6 +389,22 @@ class Client:
         
         # Calibration initiale
         self.detector.calibrate(self.stream)
+        
+        # Initialize PicarX and action thread if movements are enabled
+        if self.args.with_movements:
+            try:
+                print("[INIT] Initializing PiCarX...")
+                self.my_car = Picarx()
+                print("✓ PiCarX initialized.")
+                # Start the action handler thread
+                self.action_stop_event.clear()
+                self.action_thread = threading.Thread(target=self._action_handler_thread, daemon=True)
+                self.action_thread.start()
+                print("✓ Action handler thread started.")
+            except Exception as e:
+                print(f"❌ Failed to initialize PiCarX or start action thread: {e}")
+                print("⚠️ Robot movements will be disabled.")
+                self.my_car = None # Ensure my_car is None if init fails
         
     def _setup_audio_input(self):
         """Configure le flux audio avec sélection automatique du micro"""
@@ -456,8 +483,31 @@ class Client:
                                 print(f"\n✓ Enregistrement terminé ({duration_ms}ms)")
                                 wav_data = self.recorder.get_wav()
                                 if wav_data:
-                                    self._send_and_play(wav_data)
-                                    self.stats['recordings_valid'] += 1
+                                    server_response_data = self.send_audio_to_server(wav_data)
+                                    
+                                    if server_response_data:
+                                        self.stats['recordings_valid'] += 1
+                                        mp3_audio_bytes = server_response_data.get("audio_data")
+                                        actions_to_perform = server_response_data.get("actions", [])
+                                        
+                                        if mp3_audio_bytes:
+                                            if self.play_mp3(mp3_audio_bytes):
+                                                print("✓ Réponse audio jouée.")
+                                            else:
+                                                print("⚠️ Échec lecture audio de la réponse serveur.")
+                                        else:
+                                            print("ℹ️ Aucune donnée audio reçue du serveur.")
+                                        
+                                        if self.args.with_movements and self.my_car and actions_to_perform:
+                                            print(f"[ACTION] Actions reçues du serveur: {actions_to_perform}")
+                                            for action in actions_to_perform:
+                                                self.action_queue.append(action)
+                                        elif self.args.with_movements and not self.my_car and actions_to_perform:
+                                            print(f"[ACTION] Actions {actions_to_perform} reçues, mais PiCarX non initialisé. Actions ignorées.")
+                                        
+                                        print("✓ Réponse du serveur traitée.")
+                                    else:
+                                        print("⚠️ Échec de la communication ou du traitement de la réponse du serveur.")
                             else:
                                 print("\n✗ Niveau audio trop faible, ignoré")
                                 self.detector.false_positives += 1
@@ -485,48 +535,59 @@ class Client:
         # Afficher les statistiques
         self._print_stats()
                 
-    def _send_and_play(self, wav_bytes: bytes):
-        """Envoie l'audio au serveur et joue la réponse avec fallback TTS"""
+    def send_audio_to_server(self, audio_data: bytes):
+        """Envoie l'audio au serveur et traite la réponse"""
         try:
-            print("📡 Envoi au serveur...")
-            self.stats['recordings_sent'] += 1
-            
-            resp = requests.post(
+            print(f"📤 Envoi de {len(audio_data)} bytes au serveur...")
+            response = requests.post(
                 API_ENDPOINT,
+                files={'file': ('audio.wav', audio_data, 'audio/wav')},
                 headers={"Authorization": f"Bearer {API_TOKEN}"},
-                files={"file": ("voice.wav", wav_bytes, "audio/wav")},
-                timeout=20,
+                timeout=20  # Timeout de 20s pour la requête
             )
-            resp.raise_for_status()
+            response.raise_for_status()  # Lève une exception pour les codes 4xx/5xx
             
-            response_data = resp.json()
+            response_json = response.json()
+            # Expected format: {"answer": "text", "actions": ["action1"], "audio": "HEX_MP3_STRING"}
+            # or similar, based on server implementation.
+
+            answer_text = response_json.get("answer", "") # For logging or future use
+            requested_actions = response_json.get("actions", [])
+            audio_hex_string = response_json.get("audio", "") # Assuming server sends MP3 as hex
+
+            print(f"[SERVER_RESPONSE] Text: '{answer_text[:50]}...' Actions: {requested_actions}")
+
+            mp3_bytes = b''
+            if audio_hex_string:
+                try:
+                    mp3_bytes = bytes.fromhex(audio_hex_string)
+                except ValueError:
+                    print("[ERROR] Invalid hex string for audio data from server.")
+                    return None # Indicate failure to process response
+            elif response.content and not response_json: # Fallback if not JSON with hex, but direct MP3
+                 # This case assumes older server or direct MP3 response if JSON parsing failed but content exists
+                 print("[WARN] Server response was not JSON with hex audio, trying direct content as MP3.")
+                 mp3_bytes = response.content
+
+            return {"audio_data": mp3_bytes, "actions": requested_actions, "text": answer_text}
             
-            if "answer" in response_data:
-                print(f"🤖: {response_data['answer']}")
-                
-                if "audio" in response_data:
-                    mp3_data = bytes.fromhex(response_data["audio"])
-                    if not self.play_mp3(mp3_data) and self.tts_voice:
-                        # Fallback TTS si lecture MP3 échoue
-                        self._play_with_tts_fallback(response_data["answer"])
-                elif self.tts_voice:
-                    # Réponse texte seulement -> utiliser TTS
-                    self._play_with_tts_fallback(response_data["answer"])
-                
-        except requests.exceptions.Timeout:
-            print("❌ Timeout serveur")
         except requests.exceptions.RequestException as e:
-            print(f"❌ Erreur réseau: {e}")
+            print(f"❌ Erreur de requête: {e}")
+            return None
+        except json.JSONDecodeError as e:
+            print(f"❌ Erreur de décodage JSON de la réponse du serveur: {e}")
+            # Fallback: try to process as raw MP3 if content exists
+            if response and response.content:
+                print("[WARN] Attempting to treat raw server response as MP3 due to JSON error.")
+                return {"audio_data": response.content, "actions": [], "text": ""}
+            return None
         except Exception as e:
-            print(f"❌ Erreur: {e}")
-            
-    def play_mp3(self, mp3_bytes: bytes):
-        """Lecture via l'API Music → haut-parleur PiCar-X avec fallback TTS"""
-        print("🔊 Tentative de lecture MP3...")
-        
-        # Vérifier si des données audio sont présentes
-        if not mp3_bytes or len(mp3_bytes) < 100:  # 100 bytes min
-            print("⚠️ Données MP3 absentes ou trop courtes")
+            print(f"❌ Erreur inattendue lors de l'envoi/réception: {e}")
+            return None
+
+    def _perform_actions(self):
+        """Exécute les actions reçues du serveur"""
+        while not self.action_stop_event.is_set():
             return False
             
         # Créer un fichier temporaire
@@ -595,6 +656,44 @@ class Client:
             except:
                 pass
 
+    def _action_handler_thread(self):
+        """Handles executing actions from the queue in a separate thread."""
+        print("[ACTION_THREAD] Action handler thread started.")
+        while not self.action_stop_event.is_set():
+            try:
+                if not self.action_queue:
+                    time.sleep(0.1)  # Wait if queue is empty
+                    continue
+
+                action_name = self.action_queue.popleft()
+                print(f"[ACTION_THREAD] Executing action: {action_name}")
+
+                if not self.my_car and action_name in actions_dict:
+                    print(f"⚠️  Cannot execute PicarX action '{action_name}' because PicarX is not initialized.")
+                    continue
+                
+                if not self.music and action_name in sounds_dict: # Assuming self.music is initialized for sounds
+                    print(f"⚠️  Cannot execute sound action '{action_name}' because Music is not initialized.")
+                    continue
+
+                if action_name in actions_dict:
+                    action_func = actions_dict[action_name]
+                    action_func(self.my_car) # Pass the Picarx instance
+                    print(f"✓ Action '{action_name}' completed.")
+                elif action_name in sounds_dict:
+                    sound_func = sounds_dict[action_name]
+                    sound_func(self.music) # Pass the Music instance
+                    print(f"✓ Sound '{action_name}' completed.")
+                else:
+                    print(f"❓ Unknown action: {action_name}")
+
+            except Exception as e:
+                print(f"❌ Error in action handler thread: {e}")
+                # Optionally, add a small delay to prevent rapid error looping
+                time.sleep(0.5)
+        print("[ACTION_THREAD] Action handler thread stopped.")
+
+
     def cleanup(self):
         """Nettoyage des ressources"""
         if self.stream:
@@ -603,10 +702,48 @@ class Client:
         self.pa.terminate()
         led.off()
 
+        if self.args.with_movements and self.action_thread:
+            print("[CLEANUP] Stopping action thread...")
+            self.action_stop_event.set()
+            self.action_thread.join(timeout=3) # Wait for thread to finish
+            if self.action_thread.is_alive():
+                print("[CLEANUP] Action thread did not stop in time.")
+            else:
+                print("[CLEANUP] Action thread stopped.")
+
+        if self.args.with_movements and self.my_car:
+            print("[CLEANUP] Resetting PiCarX...")
+            try:
+                self.my_car.reset()
+                print("[CLEANUP] PiCarX reset.")
+            except Exception as e:
+                print(f"[ERROR] Exception during PiCarX reset: {e}")
+
 
 # ─────────────── MAIN ─────────────────────────────────────────────
 if __name__ == "__main__":
+    # Enable Robot HAT speaker output
+    try:
+        # This command is often needed for the Robot HAT speaker on PiCar-X
+        # It configures GPIO pin 20 as an output with high state for the speaker amplifier.
+        # Running it early to ensure sound can be played.
+        speaker_enable_cmd = "pinctrl set 20 op dh"
+        print(f"[INIT] Enabling speaker: running '{speaker_enable_cmd}'")
+        os.popen(speaker_enable_cmd).read() # .read() can help ensure it executes
+        time.sleep(0.1) # Brief pause after system command
+    except Exception as e:
+        print(f"[WARN] Failed to run speaker enable command: {e}. Sound might not work.")
+
+    parser = argparse.ArgumentParser(description="PiCar-X Voice Assistant Client")
+    parser.add_argument("--with-movements", action="store_true", 
+                        help="Enable robot movements and actions in response to commands.")
+    args = parser.parse_args()
+
     print("🤖 PiCar-X Voice Assistant - Version optimisée avec réduction de bruit")
+    if args.with_movements:
+        print("▶️  Mode mouvements activé.")
+    else:
+        print("▶️  Mode mouvements désactivé.")
     print("=" * 60)
     
     # Vérifier les dépendances
@@ -617,7 +754,7 @@ if __name__ == "__main__":
         print("   pip install scipy")
         print("   Continuons sans le filtre passe-haut...")
         
-    client = Client()
+    client = Client(args)
     
     try:
         client.listen_forever()

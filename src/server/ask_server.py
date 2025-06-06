@@ -12,6 +12,7 @@ from dotenv import load_dotenv, find_dotenv
 from fastapi import FastAPI, UploadFile, File, Header, HTTPException
 from faster_whisper import WhisperModel
 import pydub
+import json
 
 # ───────────────  CONFIG  ──────────────────────────────────────────
 load_dotenv(find_dotenv())  # charge un éventuel fichier .env
@@ -22,7 +23,22 @@ OLLAMA_URL = "http://127.0.0.1:11434/api/chat"       # Ollama « robot-mistral �
 VOICE_PATH = r"C:\Users\vince\Documents\VS Code\Dev\AI Robot - local mode\TTS\fr_FR-siwis-medium.onnx"
 PIPER_TTS_EXE = r"C:\Users\vince\Documents\VS Code\Dev\AI Robot - local mode\.venv\Scripts\piper-tts.exe"
 LLM= "mars-ia-llama3-8B-instruct-q4" #mars-ia-llama3-8B-instruct-q4 ou gemma3:1b
-SYSTEM_PROMPT = "Tu es un robot avec des roues. Tu joues avec des enfants de 10 et 12 ans. Ne réponds que par du texte. Pas d'onomatopé ou de symbole comme * car le texte sera ensuite parlé à voix haute par le robot. Répond pas des phrases courtes."
+SYSTEM_PROMPT = """Tu es un robot serviable et amusant avec des roues, conçu pour interagir avec des enfants.
+Réponds TOUJOURS en fournissant un objet JSON valide. Cet objet JSON DOIT contenir deux clés :
+1. \"answer_text\": une chaîne de caractères contenant la réponse textuelle que tu donneras à voix haute. Cette réponse doit être courte, engageante, et adaptée aux enfants. N'utilise pas d'onomatopées ou de symboles comme '*' dans ce texte.
+2. \"actions_list\": une liste de chaînes de caractères. Chaque chaîne est le nom d'une action que le robot doit effectuer. Les actions possibles incluent \"wave_hands\", \"act_cute\", \"honking\", \"start_engine\". Si aucune action n'est appropriée, retourne une liste vide [].
+
+Exemple de format de réponse attendu :
+{
+  \"answer_text\": \"Bonjour les amis ! Prêts à jouer ?\",
+  \"actions_list\": [\"wave_hands\"]
+}
+Ou, si aucune action n'est nécessaire :
+{
+  \"answer_text\": \"Je suis un robot très intelligent.\",
+  \"actions_list\": []
+}
+Assure-toi que ta réponse est UNIQUEMENT cet objet JSON, sans texte avant ou après."""
 
 # Conversation history
 conversation_history = []
@@ -54,7 +70,7 @@ except Exception:
     print("[INFO] Whisper small chargé avec compute_type=int8 (CPU)")
 
 # ❸  Appel Ollama
-def llama(prompt: str) -> str:
+def llama(prompt: str) -> tuple[str, list]:
     global conversation_history # Declare intent to modify global variable
 
     # Prepare messages for Ollama, including history
@@ -69,52 +85,60 @@ def llama(prompt: str) -> str:
                 "model": LLM,
                 "messages": messages_payload,
                 "stream": False,
+                "format": "json" # Request JSON format from Ollama if supported
             },
             timeout=60,
         )
         rsp.raise_for_status()  # Lève une exception pour les erreurs HTTP (4xx ou 5xx)
         
-        response_json = rsp.json()
+        response_json_ollama = rsp.json()
         
-        # Pour débogage, si nécessaire:
-        # print(f"[LLAMA DEBUG] Réponse complète: {response_json}") 
-        
-        if "message" in response_json and isinstance(response_json["message"], dict) and "content" in response_json["message"]:
-            assistant_response = response_json["message"]["content"]
+        if "message" in response_json_ollama and isinstance(response_json_ollama["message"], dict) and "content" in response_json_ollama["message"]:
+            assistant_response_str = response_json_ollama["message"]["content"]
             
-            # Add current exchange to history
+            final_answer_text = "Je ne sais pas quoi répondre."
+            final_actions_list = []
+            try:
+                parsed_llm_output = json.loads(assistant_response_str)
+                final_answer_text = parsed_llm_output.get("answer_text", "Pardon, je n'ai pas réussi à formuler une réponse claire.")
+                final_actions_list = parsed_llm_output.get("actions_list", [])
+                if not isinstance(final_actions_list, list):
+                    print(f"[LLAMA WARNING] 'actions_list' from LLM was not a list: {final_actions_list}. Defaulting to empty list.")
+                    final_actions_list = []
+            except json.JSONDecodeError:
+                print(f"[LLAMA ERROR] Failed to parse LLM JSON response: {assistant_response_str}")
+                final_answer_text = assistant_response_str # Fallback to using the raw response as text
+                final_actions_list = []
+            except AttributeError: # Handles if parsed_llm_output is not a dict
+                print(f"[LLAMA ERROR] LLM response was valid JSON but not a dictionary: {assistant_response_str}")
+                final_answer_text = str(parsed_llm_output) if 'parsed_llm_output' in locals() else assistant_response_str
+                final_actions_list = []
+
+            # Add current exchange to history (using the textual part for clarity)
             conversation_history.append({"role": "user", "content": prompt})
-            conversation_history.append({"role": "assistant", "content": assistant_response})
+            conversation_history.append({"role": "assistant", "content": final_answer_text})
             
             # Prune history if it's too long
             if len(conversation_history) > MAX_HISTORY_TURNS * 2:
                 conversation_history = conversation_history[-(MAX_HISTORY_TURNS * 2):]
                 
-            return assistant_response
-        elif "error" in response_json:
-            error_message = response_json["error"]
+            return final_answer_text, final_actions_list
+        elif "error" in response_json_ollama:
+            error_message = response_json_ollama["error"]
             print(f"[LLAMA ERROR] Ollama a retourné une erreur: {error_message}")
             raise HTTPException(status_code=502, detail=f"Ollama API error: {error_message}")
         else:
-            # Cas où la structure attendue n'est pas là, mais ce n'est pas non plus une clé "error" standard d'Ollama
-            # Cela pourrait être une réponse valide mais différente, ou une erreur non standard.
-            # Par exemple, si "choices" est utilisé à la place de "message" par certains modèles/versions d'Ollama.
-            # Pour l'instant, on considère que c'est inattendu pour "robot-mistral".
-            # On pourrait inspecter `response_json.keys()` pour voir ce qui est disponible.
-            # Exemple: if "choices" in response_json and response_json["choices"] and "message" in response_json["choices"][0] ...
-            print(f"[LLAMA ERROR] Structure de réponse inattendue d'Ollama: {response_json}")
-            raise HTTPException(status_code=502, detail=f"Unexpected response structure from Ollama: {response_json}")
+            print(f"[LLAMA ERROR] Structure de réponse inattendue d'Ollama: {response_json_ollama}")
+            raise HTTPException(status_code=502, detail=f"Unexpected response structure from Ollama: {response_json_ollama}")
             
     except requests.exceptions.RequestException as e:
         print(f"[LLAMA ERROR] La requête vers Ollama a échoué: {e}")
         raise HTTPException(status_code=503, detail=f"Service unavailable: Could not connect to Ollama: {e}")
     except KeyError as e:
-        # Cette capture spécifique de KeyError devrait être moins probable avec les vérifications ci-dessus,
-        # mais elle reste une sécurité pour d'autres KeyError potentielles lors du parsing de rsp.json().
         response_text = rsp.text if 'rsp' in locals() and hasattr(rsp, 'text') else 'Response object or text not available'
         print(f"[LLAMA ERROR] Erreur lors du parsing de la réponse d'Ollama (KeyError: {e}). Réponse: {response_text}")
         raise HTTPException(status_code=502, detail=f"Error parsing Ollama response: KeyError {e}")
-    except Exception as e: # Capture générique pour toute autre exception non prévue
+    except Exception as e:
         response_text = rsp.text if 'rsp' in locals() and hasattr(rsp, 'text') else 'Response object or text not available'
         print(f"[LLAMA ERROR] Erreur inattendue dans la fonction llama: {e}. Réponse: {response_text}")
         raise HTTPException(status_code=500, detail=f"Unexpected error in Llama call: {e}")
@@ -207,23 +231,23 @@ async def ask(
     # Vérifier si on a bien capturé du texte
     if not text:
         print("[STT] Aucune parole détectée dans l'audio")
-        return {"answer": "Je n'ai pas compris. Pouvez-vous répéter ?", "audio": ""}
+        return {"answer": "Je n'ai pas compris. Pouvez-vous répéter ?", "actions": [], "audio": ""}
     
     print(f"[STT {info.language}] {text}")
 
     # 3) LLM
     llm_start = time.time()
-    answer = llama(text)
+    answer_text, actions_list = llama(text)
     llm_duration = time.time() - llm_start
     print(f"[LLM TIME] {llm_duration:.2f}s")
-    print(f"[LLM] {answer}")
+    print(f"[LLM] Answer: {answer_text}, Actions: {actions_list}")
 
     # 4) TTS
     tts_start = time.time()
-    mp3_bytes = synthesize(answer)
+    mp3_bytes = synthesize(answer_text)
     tts_duration = time.time() - tts_start
     print(f"[TTS TIME] {tts_duration:.2f}s")
-    return {"answer": answer, "audio": mp3_bytes.hex()}
+    return {"answer": answer_text, "actions": actions_list, "audio": mp3_bytes.hex()}
 
 # ───────────  Endpoint de test  ────────────────────────────────────
 @app.get("/health")
