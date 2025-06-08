@@ -73,6 +73,16 @@ User → PiCar-X Mic → (client.py) → Local PC (ask_server.py + Ollama) → L
 ### On Raspberry Pi (PiCar-X)
 
 1. Enable microphone and speaker support.
+
+Some commands to manage microphone and speaker:
+Microphone:
+to find which hw id is used by the mic: arecord -l 
+
+Speaker:
+test sound: aplay /usr/share/sounds/alsa/Front_Center.wav
+to test different hw id: aplay -D plughw:2,0 /usr/share/sounds/alsa/Front_Center.wav
+to list the hw speakers: aplay -l
+
 1.1.
 Create `/root/.asoundrc` or `/etc/asound.conf` with (see `Examples/.asoundrc`):
 ############################################################
