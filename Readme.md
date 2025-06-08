@@ -140,7 +140,11 @@ ctl.!default {
    `--input-device` to override the PyAudio index when required.
 
 ---
+usage: client.py [-h] [--with-movements]
+---
 
+##
+Read Project.md for more information about the project technical details and progresss status.
 ##
 
 ---
