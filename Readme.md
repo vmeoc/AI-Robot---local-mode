@@ -74,7 +74,7 @@ User → PiCar-X Mic → (client.py) → Local PC (ask_server.py + Ollama) → L
 
 1. Enable microphone and speaker support.
 1.1.
-Create /root/.asoundrc or /etc/asound.conf with:
+Create `/root/.asoundrc` or `/etc/asound.conf` with (see `Examples/.asoundrc`):
 ############################################################
 # 1) Mixeur logiciel pour le playback sur le Robot HAT
 pcm.dmixer {
@@ -131,7 +131,13 @@ ctl.!default {
 
    ```bash
    python client.py
+   # Optional: specify an alternate microphone index
+   python client.py --input-device 1
    ```
+
+   The client uses the capture device defined in your `.asoundrc` by default.
+   See `Examples/.asoundrc` for a ready-to-use configuration. Use
+   `--input-device` to override the PyAudio index when required.
 
 ---
 
