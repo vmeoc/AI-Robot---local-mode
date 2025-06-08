@@ -408,11 +408,11 @@ class Client:
                 self.my_car = None # Ensure my_car is None if init fails
         
     def _setup_audio_input(self):
-        """Configure le flux audio avec sélection automatique du micro"""
+        """Configure le flux audio en utilisant le micro par défaut ou un périphérique spécifié"""
         try:
-            # Trouver le meilleur microphone
-            device_index = DeviceSelector.find_best_microphone(self.pa)
-            
+            # Utilise le périphérique d'entrée défini par l'utilisateur ou le défaut ALSA
+            device_index = self.args.input_device
+
             self.stream = self.pa.open(
                 rate=SR,
                 channels=1,
@@ -786,8 +786,10 @@ if __name__ == "__main__":
         print(f"[WARN] Failed to run speaker enable command: {e}. Sound might not work.")
 
     parser = argparse.ArgumentParser(description="PiCar-X Voice Assistant Client")
-    parser.add_argument("--with-movements", action="store_true", 
+    parser.add_argument("--with-movements", action="store_true",
                         help="Enable robot movements and actions in response to commands.")
+    parser.add_argument("--input-device", type=int, default=None,
+                        help="PyAudio input device index. Uses ALSA default when omitted.")
     args = parser.parse_args()
 
     print("🤖 PiCar-X Voice Assistant - Version optimisée avec réduction de bruit")

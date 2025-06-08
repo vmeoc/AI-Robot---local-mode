@@ -67,7 +67,7 @@ python utils\play_json.py reply.json  # writes response.mp3 & plays it
 * **Audio Processing** – High-pass filter, normalization, SNR calculation
 * **Smart VAD** – Multi-criteria detection with confidence scoring
 * **Auto-calibration** – Adapts to ambient noise with percentile-based thresholds
-* **Device Selection** – Automatically finds the best microphone
+* **Audio Input** – Uses ALSA's default capture device (override with `--input-device`)
 * **POST** to `/ask` with token header and normalized audio
 * **Play** the returned MP3 via robot_hat Music API
 * **Statistics** – Real-time SNR monitoring and session stats
